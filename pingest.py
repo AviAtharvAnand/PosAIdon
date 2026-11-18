@@ -3,8 +3,8 @@ import shutil
 from pathlib import Path
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-shutil.rmtree("data/chunks", ignore_errors=True)
-Path("data/chunks").mkdir(parents=True, exist_ok=True)
+shutil.rmtree("water_data/chunks", ignore_errors=True)
+Path("water_data/chunks").mkdir(parents=True, exist_ok=True)
 
 splitter = RecursiveCharacterTextSplitter(
     chunk_size=2000,

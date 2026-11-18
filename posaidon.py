@@ -17,7 +17,7 @@ client = OpenAI(api_key=os.environ["NRP_LLM_TOKEN"],
 
 st.set_page_config(page_title="PosAIdon", page_icon="🔱")
 st.title("🔱 PosAIdon", anchor = False)
-st.caption("Your Trusted Assistant for NRP Knowledge")
+st.caption("Your AI Assistant for Water Quality")
 
 with st.sidebar:
     st.header("Settings")
@@ -227,7 +227,7 @@ def rewrite_follow_up_with_ai(messages, current_question):
 
     return response.choices[0].message.content.strip()
 
-if prompt := st.chat_input("Ask about NRP..."):
+if prompt := st.chat_input("Ask about Water Quality..."):
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.write(prompt)
@@ -275,7 +275,7 @@ if prompt := st.chat_input("Ask about NRP..."):
     except BadRequestError as error:
         print(f"Embedding gateway error: {error}", flush=True)
         st.error(
-            "The NRP embedding service is currently unavailable. "
+            "The embedding service is currently unavailable. "
             "Please try again shortly."
         )
         st.stop()

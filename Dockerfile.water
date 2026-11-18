@@ -1,0 +1,28 @@
+
+FROM python:3.12-slim
+
+WORKDIR /app
+
+# Install Python dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy PosAIdon application files
+COPY posaidon.py .
+COPY pingest.py .
+COPY pindex_chunks.py .
+COPY psearch.py .
+
+# Copy water quality knowledge and indexed data
+COPY water_data/ ./water_data/
+COPY chroma_db/ ./chroma_db/
+
+# Runtime settings
+ENV PYTHONPATH=/app
+ENV PYTHONUNBUFFERED=1
+
+# Streamlit port
+EXPOSE 8501
+
+# Start PosAIdon
+CMD ["streamlit", "run", "posaidon.py", "--server.port=8501", "--server.address=0.0.0.0", "--server.headless=true"]
