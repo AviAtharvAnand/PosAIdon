@@ -1,14 +1,14 @@
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: avi-nrp-helper
+  name: PosAIdon
   namespace: rehs-2026-chatbot
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: avi-nrp-helper-role
+  name: PosAIdon-role
   namespace: rehs-2026-chatbot
 rules:
   - apiGroups: [""]
@@ -43,33 +43,33 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: avi-nrp-helper-binding
+  name: PosAIdon-binding
   namespace: rehs-2026-chatbot
 subjects:
   - kind: ServiceAccount
-    name: avi-nrp-helper
+    name: PosAIdon
     namespace: rehs-2026-chatbot
 roleRef:
   kind: Role
-  name: avi-nrp-helper-role
+  name: PosAIdon-role
   apiGroup: rbac.authorization.k8s.io
 
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: avi-nrp-helper
+  name: PosAIdon
   namespace: rehs-2026-chatbot
-  labels: {app: avi-nrp-helper}
+  labels: {app: PosAIdon}
 spec:
   replicas: 1
   selector:
-    matchLabels: {app: avi-nrp-helper}
+    matchLabels: {app: PosAIdon}
   template:
     metadata:
-      labels: {app: avi-nrp-helper}
+      labels: {app: PosAIdon}
     spec:
-      serviceAccountName: avi-nrp-helper
+      serviceAccountName: PosAIdon
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
@@ -81,7 +81,7 @@ spec:
                       - node-2-9.sdsc.optiputer.net
       containers:
         - name: streamlit
-          image: aviatharvanand/nrp-helper:v9
+          image: aviatharvanand/PosAIdon:v0
           imagePullPolicy: Always
 
           ports:
@@ -108,12 +108,12 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: avi-nrp-helper
+  name: PosAIdon
   namespace: rehs-2026-chatbot
 
 spec:
   selector:
-    app: avi-nrp-helper
+    app: PosAIdon
 
   ports:
     - port: 80
@@ -126,7 +126,7 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: avi-nrp-helper
+  name: PosAIdon
   namespace: rehs-2026-chatbot
 
 spec:
@@ -134,15 +134,15 @@ spec:
 
   tls:
     - hosts:
-        - avi-nrp-helper.nrp-nautilus.io
+        - PosAIdon.nrp-nautilus.io
   rules:
-    - host: avi-nrp-helper.nrp-nautilus.io
+    - host: PosAIdon.nrp-nautilus.io
       http:
         paths:
           - path: /
             pathType: Prefix
             backend:
               service:
-                name: avi-nrp-helper
+                name: PosAIdon
                 port:
                   number: 80

@@ -1,6 +1,6 @@
 import os
 import streamlit as st
-from search import search
+from psearch import search
 from dotenv import load_dotenv
 from openai import OpenAI
 from openai import BadRequestError
@@ -9,15 +9,14 @@ from openai import APIConnectionError
 import time
 import httpx
 import re
-from command_router import run_kubernetes_command
 
 
 load_dotenv()
 client = OpenAI(api_key=os.environ["NRP_LLM_TOKEN"],
                 base_url=os.environ.get("NRP_LLM_BASE_URL", "https://ellm.nrp-nautilus.io/v1"))
 
-st.set_page_config(page_title="NRP Helper", page_icon="🤖")
-st.title("🤖 NRP Helper", anchor = False)
+st.set_page_config(page_title="PosAIdon", page_icon="🔱")
+st.title("🔱 PosAIdon", anchor = False)
 st.caption("Your Trusted Assistant for NRP Knowledge")
 
 with st.sidebar:
@@ -29,17 +28,17 @@ with st.sidebar:
 system_prompt ={
             "role": "system", "content": 
             """
-                You are an NRP documentation assistant.
+                You are an Water Quality Helper.
 
-                Answer questions about the National Research Platform (NRP), Kubernetes, and related topics.
+                Answer questions about water quality and related topics.
 
                 For every question:
                 - First use the documentation provided in the user's message.
                 - If the documentation contains the answer, answer using it.
-                - If the documentation does not contain the answer but the question is still about NRP, Kubernetes, or a closely related topic, you may use your general knowledge.
-                - If the question is unrelated to NRP, Kubernetes, or the provided documentation, respond exactly:
+                - If the documentation does not contain the answer but the question is still about water quality or a closely related topic, you may use your general knowledge.
+                - If the question is unrelated to water quality, or the provided documentation, respond exactly:
 
-                "I am an NRP Helper. I can only answer questions about the National Research Platform (NRP), Kubernetes, and related topics using the provided documentation."
+                "I am an Water Quality Helper. I can only answer questions about water quality, and related topics using the provided documentation."
             """
             }
 
@@ -233,23 +232,8 @@ if prompt := st.chat_input("Ask about NRP..."):
     with st.chat_message("user"):
         st.write(prompt)
 
-    is_command, command_result = run_kubernetes_command(prompt)
-
-    if is_command:
-        with st.chat_message("assistant"):
-            st.code(command_result, language="text")
-
-        st.session_state.messages.append(
-            {
-                "role": "assistant",
-                "content": command_result,
-            }
-        )
-
-        st.stop()
-
     try:
-        with st.spinner("Searching NRP docs..."):
+        with st.spinner("Searching Water Quality docs..."):
             standalone_query = rewrite_follow_up_with_ai(
                 st.session_state.messages[:-1],
                 prompt,
@@ -304,9 +288,6 @@ if prompt := st.chat_input("Ask about NRP..."):
     print("=" * 80 + "\n", flush=True)
 
     grounded = f"""
-    
-    Example: what is kubernetes?
-    Kubernetes is an open-source container orchestration platform.
 
     /no think
 

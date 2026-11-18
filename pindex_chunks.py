@@ -11,7 +11,7 @@ client = OpenAI(api_key=os.environ["NRP_LLM_TOKEN"],
 
 chunks = []
 
-for file in Path("data/chunks").glob("*.json"):
+for file in Path("water_data/chunks").glob("*.json"):
     with open(file, encoding="utf-8") as f:
         chunks.append(json.load(f))
 
@@ -21,11 +21,11 @@ def embed(text: str) -> list[float]:
 chroma_client = chromadb.PersistentClient(path="./chroma_db")
 
 try:
-    chroma_client.delete_collection("nrp_docs")
+    chroma_client.delete_collection("water_docs")
 except Exception:
     pass
 
-coll = chroma_client.create_collection("nrp_docs")
+coll = chroma_client.create_collection("water_docs")
 
 coll.add(
     ids=[c["id"] for c in chunks],

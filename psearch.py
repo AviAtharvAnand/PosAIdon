@@ -11,14 +11,14 @@ client = OpenAI(api_key=os.environ["NRP_LLM_TOKEN"],
 
 chunks = []
 
-for file in Path("data/chunks").glob("*.json"):
+for file in Path("water_data/chunks").glob("*.json"):
     with open(file, encoding="utf-8") as f:
         chunks.append(json.load(f))
 
 def embed(text: str) -> list[float]:
     return client.embeddings.create(model="qwen3-embedding", input=[text]).data[0].embedding
 
-coll = chromadb.PersistentClient(path="./chroma_db").get_or_create_collection("nrp_docs")
+coll = chromadb.PersistentClient(path="./chroma_db").get_or_create_collection("water_docs")
 
 def search(query: str, k: int = 5) -> list[dict]:
     res = coll.query(query_embeddings=[embed(query)], n_results=k)

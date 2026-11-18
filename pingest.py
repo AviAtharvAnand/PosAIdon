@@ -11,7 +11,7 @@ splitter = RecursiveCharacterTextSplitter(
     chunk_overlap=400,
 )
 
-docs = Path("data/raw/nrp-site/src/content/docs/Documentation")
+docs = Path("water_markdown")
 
 chunk_count = 0
 files = list(docs.rglob("*.md")) + list(docs.rglob("*.mdx"))
@@ -24,11 +24,11 @@ for md_file in files:
 
     page_name = md_file.relative_to(docs).with_suffix("").as_posix().replace("/", "__")
     title = md_file.stem.replace("-", " ").title()
+    relative_path = md_file.relative_to(Path(".")).as_posix()
 
     url = (
-        "https://nrp.ai/documentation/"
-        + md_file.relative_to(docs).with_suffix("").as_posix()
-        + "/"
+        f"https://github.com/AviAtharvAnand/"
+        f"PosAIdon/blob/main/{relative_path}"
     )
 
     chunks = splitter.split_text(text)
@@ -42,7 +42,7 @@ for md_file in files:
             "text": chunk,
         }
 
-        outfile = Path("data/chunks") / f"{data['id']}.json"
+        outfile = Path("water_data/chunks") / f"{data['id']}.json"
 
         with open(outfile, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
