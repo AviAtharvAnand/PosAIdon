@@ -2,6 +2,7 @@
 from pathlib import Path
 import re
 import pandas as pd
+import calendar
 
 CSV_PATH = Path(__file__).resolve().parent / "water_csv" / "monitorwater_cleaned.csv"
 
@@ -51,10 +52,20 @@ def _parameter(question):
 
 
 def _analysis_intent(q):
-    if re.search(r"\bwhat\s+does\s+.+\s+mean\b", q.lower()):
-        return False
-    return bool(re.search(r"\b(trend|historical|history|average|mean|median|minimum|maximum|over time|change|changed|compare|comparison|measurements|readings|data|recorded|yearly|annual|last\s+\d+\s+years|past\s+\d+\s+years)\b", q.lower()))
+    q = q.lower()
 
+    if re.search(r"\bwhat\s+does\s+.+\s+mean\b", q):
+        return False
+
+    return bool(re.search(
+        r"\b(trend|historical|history|average|mean|median|"
+        r"minimum|maximum|over time|change|changed|"
+        r"compare|comparison|measurements|readings|"
+        r"data|recorded|yearly|annual|"
+        r"value|values|level|levels|concentration|"
+        r"last\s+\d+\s+years|past\s+\d+\s+years)\b",
+        q
+    ))
 
 # Maximum distance between candidate points for a same-water-body grouping.
 # This is an initial conservative screening radius, not proof of hydrologic identity.
@@ -169,6 +180,21 @@ def analyze_question(question: str):
     key = max(keys, key=lambda k: site[PARAMETERS[k][0]].count())
     col, label, unit = PARAMETERS[key]
     rows = site.dropna(subset=[col, "monitoring_datetime"]).copy()
+    # Filter observations by month if mentioned in the question.
+    question_lower = question.lower()
+
+    for month_number in range(1, 13):
+        month_name = calendar.month_name[month_number].lower()
+        month_abbr = calendar.month_abbr[month_number].lower()
+
+        if re.search(
+            rf"\b(?:{month_name}|{month_abbr})\b",
+            question_lower
+        ):
+            rows = rows[
+                rows["monitoring_datetime"].dt.month == month_number
+            ]
+            break
     if rows.empty: return {"context": f"No usable {label} readings for {site['label'].iloc[0]} ({unit}).", "chart": []}
 
     # Explicit year bounds; if none, use full history.
