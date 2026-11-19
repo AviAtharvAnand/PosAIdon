@@ -52,11 +52,24 @@ def _parameter(question):
 
 
 def _analysis_intent(q):
-    q = q.lower()
+    q = q.lower().strip()
 
-    if re.search(r"\bwhat\s+does\s+.+\s+mean\b", q):
+    # General educational questions should use RAG.
+    if re.search(
+        r"\b(what (?:is|does)|explain|define)\b",
+        q
+    ) and not re.search(r"\b(what was|what were)\b", q):
         return False
 
+    # Direct measurement questions.
+    if re.search(
+        r"\b(what was|what were|how much was|"
+        r"how high was|how low was)\b",
+        q
+    ):
+        return True
+
+    # Statistical and historical questions.
     return bool(re.search(
         r"\b(trend|historical|history|average|mean|median|"
         r"minimum|maximum|over time|change|changed|"
@@ -66,7 +79,6 @@ def _analysis_intent(q):
         r"last\s+\d+\s+years|past\s+\d+\s+years)\b",
         q
     ))
-
 # Maximum distance between candidate points for a same-water-body grouping.
 # This is an initial conservative screening radius, not proof of hydrologic identity.
 WATERBODY_RADIUS_METERS = 100
@@ -228,7 +240,7 @@ def analyze_question(question: str):
                f"Records with remaining quality flags: {flags}; these need interpretation, not automatic deletion.",
                "Annual daily-median values (year: median, sampling days):"]
     summary.extend(f"{r['year']}: {r['median']} {unit}, n={r['sampling_days']} days" for r in chart)
-    if 2 <= len(daily) <= 12:
+    if 1 <= len(daily) <= 12:
         summary.append("Individual sampling dates (do not mistake these for a validated trend):")
         for row in daily.sort_values("sampling_date").itertuples(index=False):
             summary.append(f"{row.sampling_date}: {getattr(row, col):.3f} {unit}")

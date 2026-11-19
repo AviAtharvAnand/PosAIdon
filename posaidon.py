@@ -26,17 +26,17 @@ with st.sidebar:
         st.session_state.pop("messages", None)
         st.rerun()
 
+# - If the CSV has no matching observation, clearly state that the requested data is unavailable.
+# - Never invent numerical measurements.
 system_prompt ={
             "role": "system", "content": 
             """
-                You are an Water Quality Helper.
-
-                Answer questions about water quality and related topics.
-
-                For every question:
-                - First use the documentation provided in the user's message.
-                - If the documentation contains the answer, answer using it.
-                - If the documentation does not contain the answer but the question is still about water quality or a closely related topic, you may use your general knowledge.
+               For every question:
+                - If MONITORWATER CSV ANALYSIS is provided, treat it as the authoritative source for historical measurements, dates, locations, and calculated statistics.
+                - Answer questions about specific measurements directly using the CSV results.
+                - Use retrieved Markdown documentation to explain scientific concepts and ecological implications.
+                - Never replace or contradict CSV measurements with general knowledge.
+                - For general water-quality questions, prioritize the provided scientific documentation.
             """
             }
 
@@ -310,6 +310,10 @@ if prompt := st.chat_input("Ask about Water Quality..."):
     - Explain sampling limitations when relevant.
     - Cite the numerical data as MonitorWater historical observations.
     - Do not claim that water is safe or unsafe based only on these measurements.
+    - When individual sampling dates are provided in MONITORWATER CSV ANALYSIS,
+    use those exact dates to answer the user's question.
+    - Do not claim that a date or measurement is unavailable when
+    it is explicitly included in the CSV analysis.
 
     QUESTION:
     {prompt}
@@ -342,7 +346,11 @@ if prompt := st.chat_input("Ask about Water Quality..."):
         try:
             with st.spinner("Generating answer..."):
                 answer = st.write_stream(token_stream(messages_for_llm))
-                if water_result is not None and water_result.get("chart"):
+                if (
+                    water_result is not None
+                    and water_result.get("chart")
+                    and len(water_result["chart"]) >= 2
+                ):
                     chart_df = pd.DataFrame(water_result["chart"])
                     chart_df = chart_df.set_index("year")
 
