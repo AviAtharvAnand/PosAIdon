@@ -79,6 +79,19 @@ def _analysis_intent(q):
         r"last\s+\d+\s+years|past\s+\d+\s+years)\b",
         q
     ))
+
+def _available_parameters_intent(question):
+    q = question.lower()
+
+    return bool(re.search(
+        r"\b(what|which|list|show|available)\b.*"
+        r"\b(parameters?|measurements?|readings?|data)\b"
+        r"|"
+        r"\b(parameters?|measurements?|readings?|data)\b.*"
+        r"\b(available|collected|measured|recorded)\b",
+        q
+    ))
+
 # Maximum distance between candidate points for a same-water-body grouping.
 # This is an initial conservative screening radius, not proof of hydrologic identity.
 WATERBODY_RADIUS_METERS = 100
@@ -127,7 +140,19 @@ def _find_site(df, q):
     if not matches:
         return None, "Please include a specific monitoring site name (for example, Inner Harbor Baltimore, Walker Creek, or Cedar River)."
 
-    chosen = sorted(matches, key=lambda s: (-len(_norm(s)), s))[0]
+    # Prefer the first explicitly mentioned location.
+    # If multiple names begin at the same position,
+    # prefer the more specific (longer) name.
+
+    chosen = sorted(
+        matches,
+        key=lambda s: (
+            normalized.find(_norm(s)),
+            -len(_norm(s))
+        )
+    )[0]
+
+    print(f"Matched monitoring location: {chosen}", flush=True)
     anchor = df[df["label"].eq(chosen)]
     sites = anchor["site_key"].value_counts(dropna=True)
     if sites.empty:
@@ -173,18 +198,110 @@ def _find_site(df, q):
     candidate = candidate[candidate.apply(compatible, axis=1)]
     return candidate if not candidate.empty else anchor.copy(), None
 
+def get_available_parameters(site):
+    """List available water-quality parameters at a resolved site."""
+
+    if site is None or site.empty:
+        return {
+            "context": "No matching monitoring location was found.",
+            "chart": []
+        }
+
+    labels = ", ".join(sorted(site["label"].unique()))
+    gps_points = site["site_key"].nunique()
+
+    results = []
+
+    for key, (col, label, unit) in PARAMETERS.items():
+
+        valid = site.dropna(
+            subset=[col, "monitoring_datetime"]
+        ).copy()
+
+        if valid.empty:
+            continue
+
+        valid["sampling_date"] = (
+            valid["monitoring_datetime"].dt.date
+        )
+
+        count = len(valid)
+        days = valid["sampling_date"].nunique()
+
+        first_date = valid["sampling_date"].min()
+        last_date = valid["sampling_date"].max()
+
+        median = valid[col].median()
+
+        results.append(
+            f"- {label} ({unit}): "
+            f"{count} observations, "
+            f"{days} sampling days, "
+            f"median {median:.3f}, "
+            f"recorded {first_date} to {last_date}."
+        )
+
+    if not results:
+        return {
+            "context": (
+                f"No usable measurements for the supported "
+                f"parameters were found at {labels}. "
+                "This does not establish that the original "
+                "dataset contains no other measurements."
+            ),
+            "chart": []
+        }
+
+    context = (
+        "DATASET-VERIFIED MONITORWATER MEASUREMENT INVENTORY:\n"
+        f"Location: {labels}\n"
+        f"GPS monitoring points: {gps_points}\n\n"
+        "Available water-quality measurements:\n"
+        + "\n".join(results)
+        + "\n\n"
+        "IMPORTANT:\n"
+        "- These are actual measurements in the CSV.\n"
+        "- Different units are reported separately.\n"
+        "- A missing parameter does not mean its value is zero.\n"
+        "- A single measurement cannot establish a trend.\n"
+        "- The inventory covers the parameters supported by "
+        "the current analysis module, not necessarily every "
+        "column in the original dataset."
+    )
+
+    return {
+        "context": context,
+        "chart": []
+    }
 
 def analyze_question(question: str):
-    """Return dict with 'context' and 'chart' (list of year/median/count dicts) or None.
+    """Analyze MonitorWater CSV questions."""
 
-    This is only invoked for explicit historical/numerical questions.
-    """
-    if not _analysis_intent(question): return None
+    # Questions asking which parameters are available
+    if _available_parameters_intent(question):
+
+        df = _load()
+        site, error = _find_site(df, question)
+
+        if error:
+            return {"context": error, "chart": []}
+
+        return get_available_parameters(site)
+
+    # Existing numerical and trend analysis
+    if not _analysis_intent(question):
+        return None
+
     param = _parameter(question)
-    if param is None: return None
+
+    if param is None:
+        return None
+
     df = _load()
     site, error = _find_site(df, question)
-    if error: return {"context": error, "chart": []}
+
+    if error:
+        return {"context": error, "chart": []}
 
     keys = (["dissolved oxygen (mg/l)", "dissolved oxygen (ppm)"] if param == "oxygen_auto"
             else ["turbidity (ntu)", "turbidity (jtu)"] if param == "turbidity_auto" else [param])
