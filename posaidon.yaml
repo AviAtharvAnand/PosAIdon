@@ -81,7 +81,7 @@ spec:
                       - node-2-9.sdsc.optiputer.net
       containers:
         - name: streamlit
-          image: aviatharvanand/posaidon:v0.1
+          image: aviatharvanand/posaidon:v2.0
           imagePullPolicy: Always
 
           ports:

@@ -10,3 +10,4 @@ streamlit-geolocation
 geopy
 Authlib==1.6.5
 langchain-text-splitters
+pandas

@@ -12,10 +12,12 @@ COPY posaidon.py .
 COPY pingest.py .
 COPY pindex_chunks.py .
 COPY psearch.py .
+COPY panalyze.py .
 
 # Copy water quality knowledge and indexed data
 COPY water_data/ ./water_data/
 COPY chroma_db/ ./chroma_db/
+COPY water_csv/ ./water_csv/
 
 # Runtime settings
 ENV PYTHONPATH=/app

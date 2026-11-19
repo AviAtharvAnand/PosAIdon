@@ -6,3 +6,4 @@ history.json
 chroma_db
 rchatbot/.streamlit/secrets.toml
 rchatbot/.streamlit/production-secrets.toml
+*.csv

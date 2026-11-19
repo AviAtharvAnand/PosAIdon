@@ -9,7 +9,8 @@ from openai import APIConnectionError
 import time
 import httpx
 import re
-
+from panalyze import analyze_question
+import pandas as pd
 
 load_dotenv()
 client = OpenAI(api_key=os.environ["NRP_LLM_TOKEN"],
@@ -36,9 +37,6 @@ system_prompt ={
                 - First use the documentation provided in the user's message.
                 - If the documentation contains the answer, answer using it.
                 - If the documentation does not contain the answer but the question is still about water quality or a closely related topic, you may use your general knowledge.
-                - If the question is unrelated to water quality, or the provided documentation, respond exactly:
-
-                "I am an Water Quality Helper. I can only answer questions about water quality, and related topics using the provided documentation."
             """
             }
 
@@ -238,6 +236,10 @@ if prompt := st.chat_input("Ask about Water Quality..."):
                 st.session_state.messages[:-1],
                 prompt,
             )
+
+            # Analyze CSV if the question asks about historical measurements
+            water_result = analyze_question(standalone_query)
+
             search_query = rewrite_search_query(standalone_query)
             retrieved = search(search_query, k=10)
             reranked = rerank(search_query, retrieved)
@@ -251,7 +253,7 @@ if prompt := st.chat_input("Ask about Water Quality..."):
                     flush=True,
                 )
 
-            if not reranked:
+            if not reranked and water_result is None:
                 st.error("No documentation chunks were returned by search.")
                 st.stop()
 
@@ -281,6 +283,15 @@ if prompt := st.chat_input("Ask about Water Quality..."):
         st.stop()
     
     context = "\n\n---\n\n".join(f"[Source: {c['title']}]\n{c['text']}" for c in chunks)
+    if water_result is not None:
+        csv_context = water_result["context"]
+
+        context = (
+            "MONITORWATER CSV ANALYSIS:\n"
+            + csv_context
+            + "\n\n"
+            + context
+        )
     print("\n" + "=" * 80, flush=True)
     print("FULL CONTEXT SENT TO LLM", flush=True)
     print("=" * 80, flush=True)
@@ -293,6 +304,12 @@ if prompt := st.chat_input("Ask about Water Quality..."):
 
     DOCUMENTATION:
     {context}
+    If MONITORWATER CSV ANALYSIS is provided:
+    - Use the calculated statistics exactly.
+    - Do not invent measurements or trends.
+    - Explain sampling limitations when relevant.
+    - Cite the numerical data as MonitorWater historical observations.
+    - Do not claim that water is safe or unsafe based only on these measurements.
 
     QUESTION:
     {prompt}
@@ -325,6 +342,19 @@ if prompt := st.chat_input("Ask about Water Quality..."):
         try:
             with st.spinner("Generating answer..."):
                 answer = st.write_stream(token_stream(messages_for_llm))
+                if water_result is not None and water_result.get("chart"):
+                    chart_df = pd.DataFrame(water_result["chart"])
+                    chart_df = chart_df.set_index("year")
+
+                    st.line_chart(
+                        chart_df[["median"]],
+                        y_label=water_result.get("unit", "")
+                    )
+
+                    st.caption(
+                        "Source: MonitorWater historical observations. "
+                        "Annual medians; sampling may be irregular."
+                    )
 
         except (APITimeoutError, httpx.ReadTimeout) as error:
             print(f"LLM timeout: {error}", flush=True)
