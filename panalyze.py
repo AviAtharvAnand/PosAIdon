@@ -211,6 +211,7 @@ def get_available_parameters(site):
     gps_points = site["site_key"].nunique()
 
     results = []
+    plots = []
 
     for key, (col, label, unit) in PARAMETERS.items():
 
@@ -240,6 +241,20 @@ def get_available_parameters(site):
             f"median {median:.3f}, "
             f"recorded {first_date} to {last_date}."
         )
+        # Prepare actual daily measurements for charting.
+        daily = (
+            valid.groupby("sampling_date")[col]
+            .median()
+            .sort_index()
+        )
+
+        plots.append({
+            "label": f"{label} ({unit})",
+            "points": [
+                {"date": str(date), "value": float(value)}
+                for date, value in daily.items()
+            ]
+        })
 
     if not results:
         return {
@@ -271,11 +286,342 @@ def get_available_parameters(site):
 
     return {
         "context": context,
+        "chart": [],
+        "plots": plots
+    }
+
+def analyze_dataset_wide(question):
+    """Simple, dataset-wide monitoring site discovery and rankings."""
+
+    q = question.lower()
+
+    # Only handle dataset-wide discovery/ranking questions.
+    is_site_question = bool(re.search(
+        r"\b(sites?|locations?|stations?)\b", q
+    ))
+
+    is_dataset_question = bool(re.search(
+        r"\b(csv|dataset|monitorwater|all sites|other sites)\b", q
+    ))
+
+    is_ranking = bool(re.search(
+        r"\b(top|highest|lowest|most|fewest|rank)\b", q
+    ))
+
+    if not is_site_question:
+        return None
+
+    if not is_dataset_question and not is_ranking:
+        return None
+
+    # Avoid mistakenly handling specific single-site questions.
+    # Only site discovery, counts and rankings are handled here.
+
+    df = _load()
+
+    sites = df.dropna(subset=["site_key"]).copy()
+
+    if sites.empty:
+        return {
+            "context": "No usable monitoring site identifiers found.",
+            "chart": []
+        }
+
+    site_summary = (
+        sites.groupby("site_key")
+        .agg(
+            site_name=("label", "first"),
+            observations=("site_key", "size"),
+            first_date=("monitoring_datetime", "min"),
+            last_date=("monitoring_datetime", "max")
+        )
+        .reset_index()
+    )
+
+    total_sites = len(site_summary)
+    total_observations = len(df)
+
+    summary = [
+        "DATASET-WIDE MONITORWATER CSV ANALYSIS:",
+        f"Total CSV records: {total_observations:,}",
+        f"Distinct GPS monitoring sites: {total_sites:,}",
+        "Sites are identified by GPS site_key.",
+        "Site names are labels and may not be unique.",
+    ]
+
+    # Rank by median pH if requested.
+    if "ph" in q and is_ranking:
+
+        ph_sites = (
+            sites.dropna(subset=["ph_clean"])
+            .groupby("site_key")
+            .agg(
+                site_name=("label", "first"),
+                median_ph=("ph_clean", "median"),
+                sample_count=("ph_clean", "count")
+            )
+            .reset_index()
+        )
+
+        # Require at least three measurements for this ranking.
+        ph_sites = ph_sites[
+            ph_sites["sample_count"] >= 3
+        ]
+
+        ascending = bool(re.search(
+            r"\b(lowest|smallest)\b", q
+        ))
+
+        ph_sites = ph_sites.sort_values(
+            "median_ph",
+            ascending=ascending
+        ).head(10)
+
+        summary.append(
+            "Monitoring sites ranked by median pH "
+            "(minimum 3 valid observations per GPS site):"
+        )
+
+        for rank, row in enumerate(
+            ph_sites.itertuples(index=False), start=1
+        ):
+            summary.append(
+                f"{rank}. {row.site_name} "
+                f"[GPS: {row.site_key}]: "
+                f"median pH {row.median_ph:.2f}, "
+                f"{row.sample_count} observations."
+            )
+
+    else:
+        # List the 10 most frequently sampled GPS sites.
+        ranked = site_summary.sort_values(
+            "observations", ascending=False
+        ).head(10)
+
+        summary.append(
+            "Top 10 GPS sites by total CSV records:"
+        )
+
+        for rank, row in enumerate(
+            ranked.itertuples(index=False), start=1
+        ):
+            start = (
+                str(row.first_date.date())
+                if pd.notna(row.first_date) else "unknown"
+            )
+            end = (
+                str(row.last_date.date())
+                if pd.notna(row.last_date) else "unknown"
+            )
+
+            summary.append(
+                f"{rank}. {row.site_name} "
+                f"[GPS: {row.site_key}]: "
+                f"{row.observations} records, "
+                f"{start} to {end}."
+            )
+
+    summary.append(
+        "IMPORTANT: These results were calculated directly "
+        "from the complete loaded MonitorWater CSV. "
+        "Rankings do not establish water safety or ecological "
+        "condition. Monitoring locations may have different "
+        "sampling frequencies, dates and measurement quality."
+    )
+
+    return {
+        "context": "\n".join(summary),
+        "chart": []
+    }
+
+def calculate_wqi(question):
+    """Provisional CCME-method WQI using illustrative objectives."""
+
+    q = question.lower()
+
+    if not re.search(r"\b(wqi|water quality index)\b", q):
+        return None
+
+    years = re.findall(r"\b(?:19|20)\d{2}\b", question)
+
+    if len(years) != 1:
+        return {
+            "context": "Please specify one year for the WQI calculation.",
+            "chart": []
+        }
+
+    year = int(years[0])
+    df = _load()
+    site, error = _find_site(df, question)
+
+    if error:
+        return {"context": error, "chart": []}
+
+    rows = site[
+        site["monitoring_datetime"].dt.year == year
+    ].copy()
+
+    if rows.empty:
+        return {
+            "context": f"No observations available for {year}.",
+            "chart": []
+        }
+
+    # ILLUSTRATIVE screening objectives, NOT universal
+    # regulatory or aquatic-life standards.
+    # Do not compare JTU with NTU.
+    objectives = {
+        "ph_clean": ("pH", 6.5, 9.0, "pH"),
+        "dissolved_oxygen_mg_l": (
+            "Dissolved oxygen", 5.0, None, "mg/L"
+        ),
+        "water_temperature_c": (
+            "Water temperature", None, 30.0, "°C"
+        ),
+        "turbidity_ntu": (
+            "Turbidity", None, 25.0, "NTU"
+        )
+    }
+
+    observations = []
+    insufficient = []
+
+    for col, (label, lower, upper, unit) in objectives.items():
+
+        valid = rows.dropna(
+            subset=[col, "monitoring_datetime"]
+        ).copy()
+
+        valid = valid[valid[col] >= 0]
+
+        days = valid["monitoring_datetime"].dt.date.nunique()
+
+        if days < 4:
+            note = f"{label} ({unit}): {days} qualifying sampling days"
+
+            if col == "dissolved_oxygen_mg_l":
+                alt = rows["dissolved_oxygen_ppm"].notna().sum()
+                if alt:
+                    note += f"; {alt} ppm readings excluded (different unit)"
+
+            if col == "turbidity_ntu":
+                alt = rows["turbidity_jtu"].notna().sum()
+                if alt:
+                    note += f"; {alt} JTU readings excluded (different method/unit)"
+
+            insufficient.append(note)
+            continue
+
+        for value in valid[col]:
+            value = float(value)
+            excursion = 0.0
+
+            if lower is not None and value < lower:
+                excursion = (
+                    lower / value - 1
+                    if value > 0 else 1_000_000
+                )
+
+            elif upper is not None and value > upper:
+                excursion = value / upper - 1
+
+            observations.append({
+                "variable": col,
+                "excursion": excursion,
+                "failed": excursion > 0
+            })
+
+    variables = set(x["variable"] for x in observations)
+
+    if len(variables) < 4:
+        return {
+            "context": (
+                f"CCME-method WQI not calculated for {year}.\n"
+                "A minimum of four qualifying variables "
+                "with at least four sampling occasions each "
+                "is required for this implementation.\n"
+                "Insufficient measurements: "
+                + "; ".join(insufficient)
+                + "\nNo numerical WQI should be inferred."
+            ),
+            "chart": []
+        }
+
+    total_tests = len(observations)
+    failures = [x for x in observations if x["failed"]]
+    failed_variables = set(x["variable"] for x in failures)
+
+    # CCME scope, frequency, and amplitude.
+    f1 = 100 * len(failed_variables) / len(variables)
+    f2 = 100 * len(failures) / total_tests
+
+    nse = (
+        sum(x["excursion"] for x in observations)
+        / total_tests
+    )
+
+    f3 = nse / (0.01 * nse + 0.01)
+
+    wqi = 100 - (
+        (f1**2 + f2**2 + f3**2)**0.5
+        / 1.732
+    )
+
+    wqi = max(0, min(100, wqi))
+
+    if wqi >= 95:
+        category = "Excellent"
+    elif wqi >= 80:
+        category = "Good"
+    elif wqi >= 65:
+        category = "Fair"
+    elif wqi >= 45:
+        category = "Marginal"
+    else:
+        category = "Poor"
+
+    context = (
+        "PROVISIONAL CCME-METHOD WATER QUALITY INDEX\n"
+        f"Location: {', '.join(sorted(site['label'].unique()))}\n"
+        f"Year: {year}\n"
+        f"Score: {wqi:.1f} / 100\n"
+        f"Category under CCME scoring bands: {category}\n"
+        f"Variables: {len(variables)}\n"
+        f"Individual tests: {total_tests}\n"
+        f"Failed tests: {len(failures)}\n"
+        f"F1 scope: {f1:.2f}\n"
+        f"F2 frequency: {f2:.2f}\n"
+        f"F3 amplitude: {f3:.2f}\n\n"
+        "ILLUSTRATIVE OBJECTIVES USED:\n"
+        "pH: 6.5–9.0\n"
+        "Dissolved oxygen: at least 5 mg/L\n"
+        "Water temperature: at most 30°C\n"
+        "Turbidity: at most 25 NTU\n\n"
+        "IMPORTANT: This is a demonstration screening score "
+        "using the CCME mathematical method and illustrative "
+        "objectives, not a regulator-approved or site-calibrated "
+        "water-quality index. Thresholds must be validated "
+        "for the local waterbody and intended water use. "
+        "It cannot establish drinking-water safety, "
+        "aquatic-life safety, or ecological health."
+    )
+
+    return {
+        "context": context,
         "chart": []
     }
 
 def analyze_question(question: str):
     """Analyze MonitorWater CSV questions."""
+    wqi_result = calculate_wqi(question)
+
+    if wqi_result is not None:
+        return wqi_result
+    
+    dataset_result = analyze_dataset_wide(question)
+
+    if dataset_result is not None:
+        return dataset_result
 
     # Questions asking which parameters are available
     if _available_parameters_intent(question):

@@ -31,12 +31,24 @@ with st.sidebar:
 system_prompt ={
             "role": "system", "content": 
             """
-               For every question:
+                For every question:
                 - If MONITORWATER CSV ANALYSIS is provided, treat it as the authoritative source for historical measurements, dates, locations, and calculated statistics.
                 - Answer questions about specific measurements directly using the CSV results.
                 - Use retrieved Markdown documentation to explain scientific concepts and ecological implications.
                 - Never replace or contradict CSV measurements with general knowledge.
                 - For general water-quality questions, prioritize the provided scientific documentation.
+
+                The application has direct access to the MonitorWater CSV through its Python analysis tools.
+
+                When MONITORWATER CSV ANALYSIS is provided:
+                - Treat the calculated results as authoritative.
+                - Explain the findings without inventing additional data.
+                - Never claim that you cannot access the CSV when verified
+                results have been provided.
+                - Distinguish monitoring sites, sampling records and
+                water-quality measurements.
+                - Explain limitations caused by sparse or uneven sampling.
+                - Do not generalize rankings into water-safety conclusions.
             """
             }
 
@@ -232,13 +244,25 @@ if prompt := st.chat_input("Ask about Water Quality..."):
 
     try:
         with st.spinner("Searching Water Quality docs..."):
-            standalone_query = rewrite_follow_up_with_ai(
-                st.session_state.messages[:-1],
-                prompt,
-            )
+            graph_requested = bool(re.search(
+                r"\b(graph|graphs|plot|plots|chart|charts|visualize|visualise)\b",
+                prompt.lower()
+            ))
+
+            if graph_requested and st.session_state.get("last_water_query"):
+                standalone_query = st.session_state["last_water_query"]
+            else:
+                standalone_query = rewrite_follow_up_with_ai(
+                    st.session_state.messages[:-1],
+                    prompt,
+                )
 
             # Analyze CSV if the question asks about historical measurements
             water_result = analyze_question(standalone_query)
+            if water_result is not None and (
+                water_result.get("plots") or water_result.get("chart")
+            ):
+                st.session_state["last_water_query"] = standalone_query
 
             search_query = rewrite_search_query(standalone_query)
             retrieved = search(search_query, k=10)
@@ -345,24 +369,72 @@ if prompt := st.chat_input("Ask about Water Quality..."):
         print(f"Total prompt size: {prompt_characters} characters", flush=True)
         try:
             with st.spinner("Generating answer..."):
-                answer = st.write_stream(token_stream(messages_for_llm))
-                if (
+                has_graph_data = (
                     water_result is not None
-                    and water_result.get("chart")
-                    and len(water_result["chart"]) >= 2
-                ):
-                    chart_df = pd.DataFrame(water_result["chart"])
-                    chart_df = chart_df.set_index("year")
-
-                    st.line_chart(
-                        chart_df[["median"]],
-                        y_label=water_result.get("unit", "")
+                    and (
+                        water_result.get("plots")
+                        or water_result.get("chart")
                     )
+                )
 
-                    st.caption(
-                        "Source: MonitorWater historical observations. "
-                        "Annual medians; sampling may be irregular."
+                if graph_requested and has_graph_data:
+                    answer = (
+                        "Here are the graphs generated directly from "
+                        "the MonitorWater observations."
                     )
+                    st.markdown(answer)
+                else:
+                    answer = st.write_stream(token_stream(messages_for_llm))
+
+                # Display individual parameter charts.
+                if water_result is not None:
+
+                    for plot in water_result.get("plots", []):
+                        points = plot.get("points", [])
+
+                        if not points:
+                            continue
+
+                        chart_df = pd.DataFrame(points)
+                        chart_df["date"] = pd.to_datetime(chart_df["date"])
+                        chart_df = chart_df.set_index("date").sort_index()
+
+                        st.subheader(plot["label"])
+
+                        st.line_chart(
+                            chart_df[["value"]],
+                            x_label="Sampling date",
+                            y_label=plot["label"]
+                        )
+
+                        if len(chart_df) < 3:
+                            st.caption(
+                                "Limited sampling: these points do not "
+                                "establish a reliable long-term trend."
+                            )
+
+                    # Preserve existing annual historical charts.
+                    if (
+                        not water_result.get("plots")
+                        and water_result.get("chart")
+                    ):
+                        chart_df = pd.DataFrame(water_result["chart"])
+
+                        # Treat years as categories, not decimal numbers.
+                        chart_df["year"] = chart_df["year"].astype(int).astype(str)
+
+                        st.line_chart(
+                            chart_df,
+                            x="year",
+                            y="median",
+                            x_label="Year",
+                            y_label=water_result.get("unit", "")
+                        )
+
+                        st.caption(
+                            "Source: MonitorWater historical observations. "
+                            "Annual daily medians; sampling may be irregular."
+                        )
 
         except (APITimeoutError, httpx.ReadTimeout) as error:
             print(f"LLM timeout: {error}", flush=True)
