@@ -11,6 +11,7 @@ import httpx
 import re
 from panalyze import analyze_question
 import pandas as pd
+from pathlib import Path
 
 load_dotenv()
 client = OpenAI(api_key=os.environ["NRP_LLM_TOKEN"],
@@ -18,13 +19,40 @@ client = OpenAI(api_key=os.environ["NRP_LLM_TOKEN"],
 
 st.set_page_config(page_title="PosAIdon", page_icon="🔱")
 st.title("🔱 PosAIdon", anchor = False)
-st.caption("Your AI Assistant for Water Quality")
+st.caption("Your AI-Power Water Quality Intelligence System.")
 
 with st.sidebar:
     st.header("Settings")
     if st.button("🗑️ Clear chat"):
         st.session_state.pop("messages", None)
         st.rerun()
+    st.divider()
+
+    st.subheader("Water Quality Data")
+
+    csv_path = (
+        Path(__file__).resolve().parent
+        / "water_csv"
+        / "monitorwater_cleaned.csv"
+    )
+
+    if csv_path.exists():
+        with open(csv_path, "rb") as csv_file:
+            st.download_button(
+                label="Download MonitorWater Dataset",
+                data=csv_file,
+                file_name="monitorwater_cleaned.csv",
+                mime="text/csv",
+                icon=":material/download:",
+                use_container_width=True
+            )
+
+        st.caption(
+            "Download the cleaned historical water-quality "
+            "dataset used by PosAIdon."
+        )
+    else:
+        st.warning("Dataset file is unavailable.")
 
 # - If the CSV has no matching observation, clearly state that the requested data is unavailable.
 # - Never invent numerical measurements.
@@ -259,6 +287,21 @@ if prompt := st.chat_input("Ask about Water Quality..."):
 
             # Analyze CSV if the question asks about historical measurements
             water_result = analyze_question(standalone_query)
+            
+            # Show monitoring locations for a site-specific CSV question
+            if water_result is not None and not water_result.get("context", "").startswith("Please include"):
+                from panalyze import _load, _find_site
+
+                site, error = _find_site(_load(), standalone_query)
+
+                if error is None and site is not None:
+                    points = site[["latitude", "longitude"]].dropna().drop_duplicates()
+
+                    if not points.empty:
+                        with st.chat_message("assistant"):
+                            st.caption("Historical water-quality monitoring locations")
+                            st.map(points)
+
             if water_result is not None and (
                 water_result.get("plots") or water_result.get("chart")
             ):
@@ -397,12 +440,17 @@ if prompt := st.chat_input("Ask about Water Quality..."):
 
                         chart_df = pd.DataFrame(points)
                         chart_df["date"] = pd.to_datetime(chart_df["date"])
-                        chart_df = chart_df.set_index("date").sort_index()
+                        chart_df = chart_df.sort_values("date")
+
+                        # Display actual sampling dates as categories.
+                        chart_df["date_label"] = chart_df["date"].dt.strftime("%b %d, %Y")
 
                         st.subheader(plot["label"])
 
                         st.line_chart(
-                            chart_df[["value"]],
+                            chart_df,
+                            x="date_label",
+                            y="value",
                             x_label="Sampling date",
                             y_label=plot["label"]
                         )
@@ -431,10 +479,17 @@ if prompt := st.chat_input("Ask about Water Quality..."):
                             y_label=water_result.get("unit", "")
                         )
 
-                        st.caption(
-                            "Source: MonitorWater historical observations. "
-                            "Annual daily medians; sampling may be irregular."
-                        )
+                        if water_result.get("is_wqi"):
+                            st.caption(
+                                "Provisional annual CCME-method WQI using illustrative "
+                                "objectives. Scores are not official water-quality ratings. "
+                                "Years with insufficient data are excluded."
+                            )
+                        else:
+                            st.caption(
+                                "Source: MonitorWater historical observations. "
+                                "Annual daily medians; sampling may be irregular."
+                            )
 
         except (APITimeoutError, httpx.ReadTimeout) as error:
             print(f"LLM timeout: {error}", flush=True)

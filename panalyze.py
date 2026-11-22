@@ -439,14 +439,95 @@ def calculate_wqi(question):
 
     q = question.lower()
 
-    if not re.search(r"\b(wqi|water quality index)\b", q):
+    if not re.search(
+        r"\b(wqi|water quality index|water quality score|"
+        r"water quality rating|water quality index score)\b",
+        q
+    ):
         return None
 
     years = re.findall(r"\b(?:19|20)\d{2}\b", question)
 
+    if len(years) == 0:
+        df = _load()
+        site, error = _find_site(df, question)
+
+        if error:
+            return {"context": error, "chart": []}
+
+        available_years = sorted(
+            site["monitoring_year"].dropna().astype(int).unique()
+        )
+
+        chart = []
+        skipped = []
+
+        for y in available_years:
+            result = calculate_wqi(f"{question} in {y}")
+            context = result["context"]
+
+            match = re.search(
+                r"Score:\s*([\d.]+)\s*/\s*100",
+                context
+            )
+
+            if match:
+                chart.append({
+                    "year": int(y),
+                    "median": float(match.group(1))
+                })
+            else:
+                skipped.append(int(y))
+
+        if not chart:
+            return {
+                "context": (
+                    "No years had sufficient qualifying measurements "
+                    "to calculate the provisional WQI."
+                ),
+                "chart": []
+            }
+
+        lines = [
+            "HISTORICAL PROVISIONAL WATER QUALITY INDEX",
+            f"Location: {', '.join(sorted(site['label'].unique()))}",
+            "",
+            "Annual WQI scores:"
+        ]
+
+        for item in chart:
+            lines.append(
+                f"{item['year']}: {item['median']:.1f} / 100"
+            )
+
+        if skipped:
+            lines.append(
+                "Years without sufficient qualifying data: "
+                + ", ".join(map(str, skipped))
+            )
+
+        lines.append(
+            "\nThese scores use the CCME mathematical method "
+            "with illustrative screening objectives, not "
+            "validated site-specific regulatory objectives. "
+            "Missing years are excluded rather than assigned zero. "
+            "Changes in scores may reflect differences in sampling "
+            "coverage as well as water conditions."
+        )
+
+        return {
+            "context": "\n".join(lines),
+            "chart": chart,
+            "unit": "WQI (0–100)",
+            "is_wqi": True
+        }
+
     if len(years) != 1:
         return {
-            "context": "Please specify one year for the WQI calculation.",
+            "context": (
+                "Please request a single year or omit the year "
+                "to display all eligible historical WQI scores."
+            ),
             "chart": []
         }
 
