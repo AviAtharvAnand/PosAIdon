@@ -25,6 +25,7 @@ with st.sidebar:
     st.header("Settings")
     if st.button("🗑️ Clear chat"):
         st.session_state.pop("messages", None)
+        st.session_state.pop("last_water_query", None)
         st.rerun()
     st.divider()
 
@@ -77,15 +78,156 @@ system_prompt ={
                 water-quality measurements.
                 - Explain limitations caused by sparse or uneven sampling.
                 - Do not generalize rankings into water-safety conclusions.
+
+                When interpreting water-quality observations:
+                - Use the EarthEcho Analysis Dictionary when relevant.
+                - Explain possible causes, ecological impacts, and retesting steps.
+                - Treat potential causes as hypotheses, not confirmed diagnoses.
+                - Never invent measurements missing from the CSV.
+                - Do not treat reference ranges as universal safety standards.
+                - Do not calculate a Water Quality Index using this dictionary alone.
+
+                For historical trend questions:
+                - If year-by-year statistics are present in MONITORWATER CSV ANALYSIS, report those statistics directly.
+                - Do not say yearly data is unavailable when annual measurements or annual summaries are provided.
+                - Distinguish observed changes from a statistically validated trend.
+                - If only an overall median is provided, do not invent annual values.
+                - Never substitute data from a previous monitoring site.
             """
             }
+
+
+
+def display_charts(water_result, question=""):
+    if not water_result:
+        return
+
+    # Only display charts when explicitly requested.
+    if not re.search(
+        r"\b(graph|graphs|plot|plots|chart|charts|trend|trends|visualize|visualise)\b",
+        question,
+        re.IGNORECASE
+    ):
+        return
+
+    q = question.lower()
+
+    plots = water_result.get("plots", [])
+
+    # Select the water-quality parameter requested by the user.
+    if re.search(r"dissolved oxygen|\bdo\b", q):
+        plots = [
+            p for p in plots
+            if "dissolved oxygen" in p.get("label", "").lower()
+        ]
+    elif re.search(r"\bph\b", q):
+        plots = [
+            p for p in plots
+            if "ph" in p.get("label", "").lower()
+        ]
+    elif "temperature" in q:
+        plots = [
+            p for p in plots
+            if "temperature" in p.get("label", "").lower()
+        ]
+    elif "turbidity" in q:
+        plots = [
+            p for p in plots
+            if "turbidity" in p.get("label", "").lower()
+        ]
+
+    # When annual statistics exist for a requested historical trend,
+    # prefer the annual chart instead of plotting every raw sample.
+    if water_result.get("chart") and re.search(
+        r"\b(trend|trends|annual|yearly)\b", q
+    ):
+        plots = []
+
+    for plot in plots:
+        points = plot.get("points", [])
+
+        if not points:
+            continue
+
+        chart_df = pd.DataFrame(points)
+        chart_df["date"] = pd.to_datetime(
+            chart_df["date"], errors="coerce"
+        )
+        chart_df = chart_df.dropna(subset=["date", "value"])
+        chart_df = chart_df.sort_values("date")
+
+        if chart_df.empty:
+            continue
+
+        st.subheader(plot["label"])
+
+        st.line_chart(
+            chart_df,
+            x="date",
+            y="value",
+            x_label="Sampling date",
+            y_label=plot["label"]
+        )
+
+        if len(chart_df) < 3:
+            st.caption(
+                "Limited sampling: these points do not "
+                "establish a reliable long-term trend."
+            )
+
+    # Preserve the existing annual chart functionality.
+    if not plots and water_result.get("chart"):
+        chart_df = pd.DataFrame(water_result["chart"])
+        chart_df["year"] = chart_df["year"].astype(int).astype(str)
+
+        st.line_chart(
+            chart_df,
+            x="year",
+            y="median",
+            x_label="Year",
+            y_label=water_result.get("unit", "")
+        )
+
+        if water_result.get("is_wqi"):
+            st.caption(
+                "Provisional annual CCME-method WQI using illustrative "
+                "objectives. Scores are not official water-quality ratings. "
+                "Years with insufficient data are excluded."
+            )
+        else:
+            st.caption(
+                "Source: MonitorWater historical observations. "
+                "Annual daily medians; sampling may be irregular."
+            )
+
+
+def display_sources(chunks):
+    if not chunks:
+        return
+
+    with st.expander("📚 Sources"):
+        for chunk in chunks:
+            st.markdown(
+                f"- [{chunk['title']}]({chunk['source_url']}) "
+                f"*(distance: {chunk['score']:.3f}, "
+                f"reranked: {chunk['rank_score']:.3f})*"
+            )
 
 if "messages" not in st.session_state:
     st.session_state.messages = [system_prompt]
 
 for msg in st.session_state.messages:
     if msg["role"] != "system":
-        st.chat_message(msg["role"]).write(msg["content"])
+        with st.chat_message(msg["role"]):
+            st.write(msg["content"])
+
+            if msg["role"] == "assistant":
+                display_charts(
+                    msg.get("water_result"),
+                    msg.get("question", "")
+                )
+                display_sources(msg.get("chunks", []))
+
 
 STOP_WORDS = {
     "a", "an", "the", "is", "are", "i", "you", "we",
@@ -277,30 +419,41 @@ if prompt := st.chat_input("Ask about Water Quality..."):
                 prompt.lower()
             ))
 
-            if graph_requested and st.session_state.get("last_water_query"):
-                standalone_query = st.session_state["last_water_query"]
-            else:
+            # Only rewrite questions that explicitly refer to earlier context.
+            needs_context = bool(re.search(
+                r"\b(it|its|there|that|those|them|same|previous)\b",
+                prompt,
+                re.IGNORECASE
+            ))
+
+            if needs_context:
                 standalone_query = rewrite_follow_up_with_ai(
                     st.session_state.messages[:-1],
                     prompt,
                 )
+            else:
+                standalone_query = prompt
 
             # Analyze CSV if the question asks about historical measurements
             water_result = analyze_question(standalone_query)
+            print("QUERY:", standalone_query, flush=True)
+            print("RESULT KEYS:", list(water_result.keys()) if water_result else None, flush=True)
+            print("PLOTS:", len(water_result.get("plots", [])) if water_result else 0, flush=True)
+            print("CHART:", bool(water_result.get("chart")) if water_result else False, flush=True)
             
             # Show monitoring locations for a site-specific CSV question
-            if water_result is not None and not water_result.get("context", "").startswith("Please include"):
-                from panalyze import _load, _find_site
+            # if water_result is not None and not water_result.get("context", "").startswith("Please include"):
+            #     from panalyze import _load, _find_site
 
-                site, error = _find_site(_load(), standalone_query)
+            #     site, error = _find_site(_load(), standalone_query)
 
-                if error is None and site is not None:
-                    points = site[["latitude", "longitude"]].dropna().drop_duplicates()
+            #     if error is None and site is not None:
+            #         points = site[["latitude", "longitude"]].dropna().drop_duplicates()
 
-                    if not points.empty:
-                        with st.chat_message("assistant"):
-                            st.caption("Historical water-quality monitoring locations")
-                            st.map(points)
+            #         if not points.empty:
+            #             with st.chat_message("assistant"):
+            #                 st.caption("Historical water-quality monitoring locations")
+            #                 st.map(points)
 
             if water_result is not None and (
                 water_result.get("plots") or water_result.get("chart")
@@ -430,66 +583,7 @@ if prompt := st.chat_input("Ask about Water Quality..."):
                     answer = st.write_stream(token_stream(messages_for_llm))
 
                 # Display individual parameter charts.
-                if water_result is not None:
-
-                    for plot in water_result.get("plots", []):
-                        points = plot.get("points", [])
-
-                        if not points:
-                            continue
-
-                        chart_df = pd.DataFrame(points)
-                        chart_df["date"] = pd.to_datetime(chart_df["date"])
-                        chart_df = chart_df.sort_values("date")
-
-                        # Display actual sampling dates as categories.
-                        chart_df["date_label"] = chart_df["date"].dt.strftime("%b %d, %Y")
-
-                        st.subheader(plot["label"])
-
-                        st.line_chart(
-                            chart_df,
-                            x="date_label",
-                            y="value",
-                            x_label="Sampling date",
-                            y_label=plot["label"]
-                        )
-
-                        if len(chart_df) < 3:
-                            st.caption(
-                                "Limited sampling: these points do not "
-                                "establish a reliable long-term trend."
-                            )
-
-                    # Preserve existing annual historical charts.
-                    if (
-                        not water_result.get("plots")
-                        and water_result.get("chart")
-                    ):
-                        chart_df = pd.DataFrame(water_result["chart"])
-
-                        # Treat years as categories, not decimal numbers.
-                        chart_df["year"] = chart_df["year"].astype(int).astype(str)
-
-                        st.line_chart(
-                            chart_df,
-                            x="year",
-                            y="median",
-                            x_label="Year",
-                            y_label=water_result.get("unit", "")
-                        )
-
-                        if water_result.get("is_wqi"):
-                            st.caption(
-                                "Provisional annual CCME-method WQI using illustrative "
-                                "objectives. Scores are not official water-quality ratings. "
-                                "Years with insufficient data are excluded."
-                            )
-                        else:
-                            st.caption(
-                                "Source: MonitorWater historical observations. "
-                                "Annual daily medians; sampling may be irregular."
-                            )
+                display_charts(water_result, prompt)
 
         except (APITimeoutError, httpx.ReadTimeout) as error:
             print(f"LLM timeout: {error}", flush=True)
@@ -505,12 +599,12 @@ if prompt := st.chat_input("Ask about Water Quality..."):
             st.stop()
         print("LLM finished", flush=True)
 
-        with st.expander("📚 Sources"):
-            for chunk in chunks:
-                st.markdown(
-                    f"- [{chunk['title']}]({chunk['source_url']}) "
-                    f"*(distance: {chunk['score']:.3f}, "
-                    f"reranked: {chunk['rank_score']:.3f})*"
-                )
+        display_sources(chunks)
 
-    st.session_state.messages.append({"role": "assistant", "content": answer})
+    st.session_state.messages.append({
+        "role": "assistant",
+        "content": answer,
+        "question": prompt,
+        "water_result": water_result,
+        "chunks": chunks
+    })
