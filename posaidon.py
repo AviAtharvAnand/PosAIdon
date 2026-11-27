@@ -10,6 +10,7 @@ import time
 import httpx
 import re
 from panalyze import analyze_question
+from prouter import interpret_question
 import pandas as pd
 from pathlib import Path
 
@@ -98,49 +99,21 @@ system_prompt ={
 
 
 
-def display_charts(water_result, question=""):
-    if not water_result:
+def display_charts(water_result, plan):
+    # The AI router decides whether a chart helps; data is sent to the LLM either way.
+    if not water_result or not plan or not plan.get("wants_chart"):
         return
 
-    # Only display charts when explicitly requested.
-    if not re.search(
-        r"\b(graph|graphs|plot|plots|chart|charts|trend|trends|visualize|visualise)\b",
-        question,
-        re.IGNORECASE
-    ):
-        return
+    plots = water_result.get("plots") or []
 
-    q = question.lower()
+    # Keep only the parameters the user asked about (none named = show all).
+    wanted = set(plan.get("parameters") or [])
+    if wanted:
+        plots = [p for p in plots if p.get("parameter") in wanted] or plots
 
-    plots = water_result.get("plots", [])
-
-    # Select the water-quality parameter requested by the user.
-    if re.search(r"dissolved oxygen|\bdo\b", q):
-        plots = [
-            p for p in plots
-            if "dissolved oxygen" in p.get("label", "").lower()
-        ]
-    elif re.search(r"\bph\b", q):
-        plots = [
-            p for p in plots
-            if "ph" in p.get("label", "").lower()
-        ]
-    elif "temperature" in q:
-        plots = [
-            p for p in plots
-            if "temperature" in p.get("label", "").lower()
-        ]
-    elif "turbidity" in q:
-        plots = [
-            p for p in plots
-            if "turbidity" in p.get("label", "").lower()
-        ]
-
-    # When annual statistics exist for a requested historical trend,
-    # prefer the annual chart instead of plotting every raw sample.
-    if water_result.get("chart") and re.search(
-        r"\b(trend|trends|annual|yearly)\b", q
-    ):
+    # A single-parameter result carries its annual series in "chart";
+    # prefer that over plotting every raw sample.
+    if water_result.get("chart"):
         plots = []
 
     for plot in plots:
@@ -150,6 +123,24 @@ def display_charts(water_result, question=""):
             continue
 
         chart_df = pd.DataFrame(points)
+
+        if plot.get("kind") == "annual":
+            chart_df["year"] = chart_df["year"].astype(int).astype(str)
+            st.subheader(plot["label"])
+            st.line_chart(
+                chart_df,
+                x="year",
+                y="median",
+                x_label="Year",
+                y_label=plot["label"]
+            )
+            if len(chart_df) < 3:
+                st.caption(
+                    "Limited sampling: these points do not "
+                    "establish a reliable long-term trend."
+                )
+            continue
+
         chart_df["date"] = pd.to_datetime(
             chart_df["date"], errors="coerce"
         )
@@ -224,7 +215,7 @@ for msg in st.session_state.messages:
             if msg["role"] == "assistant":
                 display_charts(
                     msg.get("water_result"),
-                    msg.get("question", "")
+                    msg.get("plan")
                 )
                 display_sources(msg.get("chunks", []))
 
@@ -366,47 +357,6 @@ def token_stream(messages):
 
             yield content
 
-def rewrite_follow_up_with_ai(messages, current_question):
-    recent_history = [
-        message
-        for message in messages
-        if message["role"] in {"user", "assistant"}
-    ][-4:]
-
-    rewrite_messages = [
-        {
-            "role": "system",
-            "content": (
-                "/no think\n\n"
-                "Rewrite the latest user question as a standalone search query. "
-                "Use conversation history only to resolve references such as "
-                "'it', 'them', 'that', or 'there'. "
-                "If the latest question is independent, return it unchanged. "
-                "Do not answer the question. "
-                "Return only the rewritten query."
-            ),
-        },
-        *recent_history,
-        {
-            "role": "user",
-            "content": current_question,
-        },
-    ]
-
-    response = client.chat.completions.create(
-        model="qwen3-small",
-        messages=rewrite_messages,
-        temperature=0,
-        timeout=30,
-        extra_body={
-            "chat_template_kwargs": {
-                "enable_thinking": False
-            }
-        },
-    )
-
-    return response.choices[0].message.content.strip()
-
 if prompt := st.chat_input("Ask about Water Quality..."):
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
@@ -414,28 +364,17 @@ if prompt := st.chat_input("Ask about Water Quality..."):
 
     try:
         with st.spinner("Searching Water Quality docs..."):
-            graph_requested = bool(re.search(
-                r"\b(graph|graphs|plot|plots|chart|charts|visualize|visualise)\b",
-                prompt.lower()
-            ))
-
-            # Only rewrite questions that explicitly refer to earlier context.
-            needs_context = bool(re.search(
-                r"\b(it|its|there|that|those|them|same|previous)\b",
+            # One AI call decides routing: standalone rewrite, whether CSV
+            # data is needed, which site/parameters, and whether to chart.
+            plan = interpret_question(
+                st.session_state.messages[:-1],
                 prompt,
-                re.IGNORECASE
-            ))
+            )
+            standalone_query = plan["standalone_question"]
 
-            if needs_context:
-                standalone_query = rewrite_follow_up_with_ai(
-                    st.session_state.messages[:-1],
-                    prompt,
-                )
-            else:
-                standalone_query = prompt
-
-            # Analyze CSV if the question asks about historical measurements
-            water_result = analyze_question(standalone_query)
+            # CSV statistics are computed whenever the question needs them,
+            # independent of whether a chart is shown.
+            water_result = analyze_question(standalone_query, plan)
             print("QUERY:", standalone_query, flush=True)
             print("RESULT KEYS:", list(water_result.keys()) if water_result else None, flush=True)
             print("PLOTS:", len(water_result.get("plots", [])) if water_result else 0, flush=True)
@@ -565,25 +504,10 @@ if prompt := st.chat_input("Ask about Water Quality..."):
         print(f"Total prompt size: {prompt_characters} characters", flush=True)
         try:
             with st.spinner("Generating answer..."):
-                has_graph_data = (
-                    water_result is not None
-                    and (
-                        water_result.get("plots")
-                        or water_result.get("chart")
-                    )
-                )
+                answer = st.write_stream(token_stream(messages_for_llm))
 
-                if graph_requested and has_graph_data:
-                    answer = (
-                        "Here are the graphs generated directly from "
-                        "the MonitorWater observations."
-                    )
-                    st.markdown(answer)
-                else:
-                    answer = st.write_stream(token_stream(messages_for_llm))
-
-                # Display individual parameter charts.
-                display_charts(water_result, prompt)
+                # Charts are shown when the router judged them useful.
+                display_charts(water_result, plan)
 
         except (APITimeoutError, httpx.ReadTimeout) as error:
             print(f"LLM timeout: {error}", flush=True)
@@ -605,6 +529,7 @@ if prompt := st.chat_input("Ask about Water Quality..."):
         "role": "assistant",
         "content": answer,
         "question": prompt,
+        "plan": plan,
         "water_result": water_result,
         "chunks": chunks
     })

@@ -13,6 +13,7 @@ COPY pingest.py .
 COPY pindex_chunks.py .
 COPY psearch.py .
 COPY panalyze.py .
+COPY prouter.py .
 
 # Copy water quality knowledge and indexed data
 COPY water_data/ ./water_data/

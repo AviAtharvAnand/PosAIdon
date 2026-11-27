@@ -15,6 +15,16 @@ PARAMETERS = {
     "turbidity (jtu)": ("turbidity_jtu", "Turbidity", "JTU"),
 }
 
+# Router parameter names -> compatible PARAMETERS keys (different units never pooled).
+PARAMETER_GROUPS = {
+    "ph": ["ph"],
+    "dissolved_oxygen": ["dissolved oxygen (mg/l)", "dissolved oxygen (ppm)"],
+    "temperature": ["water temperature"],
+    "turbidity": ["turbidity (ntu)", "turbidity (jtu)"],
+}
+KEY_TO_GROUP = {key: group for group, keys in PARAMETER_GROUPS.items() for key in keys}
+
+
 def _norm(s):
     return re.sub(r"[^a-z0-9]+", " ", str(s).lower()).strip()
 
@@ -251,6 +261,7 @@ def get_available_parameters(site):
 
         plots.append({
             "label": f"{label} ({unit})",
+            "parameter": KEY_TO_GROUP[key],
             "points": [
                 {"date": str(date), "value": float(value)}
                 for date, value in daily.items()
@@ -291,8 +302,11 @@ def get_available_parameters(site):
         "plots": plots
     }
 
-def analyze_dataset_wide(question):
-    """Simple, dataset-wide monitoring site discovery and rankings."""
+def analyze_dataset_wide(question, force=False):
+    """Simple, dataset-wide monitoring site discovery and rankings.
+
+    force=True skips the keyword gate (the AI router already chose this task).
+    """
 
     q = question.lower()
 
@@ -309,11 +323,12 @@ def analyze_dataset_wide(question):
         r"\b(top|highest|lowest|most|fewest|rank)\b", q
     ))
 
-    if not is_site_question:
-        return None
+    if not force:
+        if not is_site_question:
+            return None
 
-    if not is_dataset_question and not is_ranking:
-        return None
+        if not is_dataset_question and not is_ranking:
+            return None
 
     # Avoid mistakenly handling specific single-site questions.
     # Only site discovery, counts and rankings are handled here.
@@ -435,12 +450,17 @@ def analyze_dataset_wide(question):
         "chart": []
     }
 
-def calculate_wqi(question):
-    """Provisional CCME-method WQI using illustrative objectives."""
+def calculate_wqi(question, force=False, site_text=None):
+    """Provisional CCME-method WQI using illustrative objectives.
+
+    force=True skips the keyword gate (the AI router already chose this task).
+    site_text, if given, is used for site matching instead of the question.
+    """
 
     q = question.lower()
+    site_query = site_text or question
 
-    if not re.search(
+    if not force and not re.search(
         r"\b(wqi|water quality index|water quality score|"
         r"water quality rating|water quality index score)\b",
         q
@@ -451,7 +471,7 @@ def calculate_wqi(question):
 
     if len(years) == 0:
         df = _load()
-        site, error = _find_site(df, question)
+        site, error = _find_site(df, site_query)
 
         if error:
             return {"context": error, "chart": []}
@@ -464,7 +484,9 @@ def calculate_wqi(question):
         skipped = []
 
         for y in available_years:
-            result = calculate_wqi(f"{question} in {y}")
+            result = calculate_wqi(
+                f"{question} in {y}", force=True, site_text=site_query
+            )
             context = result["context"]
 
             match = re.search(
@@ -534,7 +556,7 @@ def calculate_wqi(question):
 
     year = int(years[0])
     df = _load()
-    site, error = _find_site(df, question)
+    site, error = _find_site(df, site_query)
 
     if error:
         return {"context": error, "chart": []}
@@ -693,89 +715,64 @@ def calculate_wqi(question):
         "chart": []
     }
 
-def analyze_question(question: str):
-    """Analyze MonitorWater CSV questions."""
-    wqi_result = calculate_wqi(question)
 
-    if wqi_result is not None:
-        return wqi_result
-    
-    dataset_result = analyze_dataset_wide(question)
-
-    if dataset_result is not None:
-        return dataset_result
-
-    # Questions asking which parameters are available
-    if _available_parameters_intent(question):
-
-        df = _load()
-        site, error = _find_site(df, question)
-
-        if error:
-            return {"context": error, "chart": []}
-
-        return get_available_parameters(site)
-
-    # Existing numerical and trend analysis
-    if not _analysis_intent(question):
-        return None
-
-    param = _parameter(question)
-
-    if param is None:
-        return None
-
-    df = _load()
-    site, error = _find_site(df, question)
-
-    if error:
-        return {"context": error, "chart": []}
-
-    keys = (["dissolved oxygen (mg/l)", "dissolved oxygen (ppm)"] if param == "oxygen_auto"
-            else ["turbidity (ntu)", "turbidity (jtu)"] if param == "turbidity_auto" else [param])
-    # Choose the most observed compatible unit; never pool incompatible units.
-    key = max(keys, key=lambda k: site[PARAMETERS[k][0]].count())
-    col, label, unit = PARAMETERS[key]
-    rows = site.dropna(subset=[col, "monitoring_datetime"]).copy()
-    # Filter observations by month if mentioned in the question.
-    question_lower = question.lower()
-
-    for month_number in range(1, 13):
-        month_name = calendar.month_name[month_number].lower()
-        month_abbr = calendar.month_abbr[month_number].lower()
-
-        if re.search(
-            rf"\b(?:{month_name}|{month_abbr})\b",
-            question_lower
-        ):
-            rows = rows[
-                rows["monitoring_datetime"].dt.month == month_number
-            ]
-            break
-    if rows.empty: return {"context": f"No usable {label} readings for {site['label'].iloc[0]} ({unit}).", "chart": []}
-
-    # Explicit year bounds; if none, use full history.
+def _year_filters_from_text(question):
+    """Legacy regex parsing of year bounds -> (start, end, last_n)."""
     years = [int(y) for y in re.findall(r"\b(?:19|20)\d{2}\b", question)]
     if years:
         start, end = min(years), max(years)
         if len(years) == 1 and ("since" in question.lower() or "from" in question.lower()):
-            end = int(rows["monitoring_year"].max())
-        rows = rows[rows["monitoring_year"].between(start, end)]
-    else:
-        m = re.search(r"(?:last|past)\s+(\d+)\s+years?", question, re.I)
-        if m:
-            end = int(rows["monitoring_year"].max())
-            rows = rows[rows["monitoring_year"] >= end - int(m.group(1)) + 1]
-    if rows.empty: return {"context": "No measurements in the requested date range.", "chart": []}
+            end = None
+        return start, end, None
+    m = re.search(r"(?:last|past)\s+(\d+)\s+years?", question, re.I)
+    return None, None, (int(m.group(1)) if m else None)
+
+
+def _month_from_text(question):
+    """Legacy regex parsing of a month name -> 1-12 or None."""
+    q = question.lower()
+    for month_number in range(1, 13):
+        month_name = calendar.month_name[month_number].lower()
+        month_abbr = calendar.month_abbr[month_number].lower()
+        if re.search(rf"\b(?:{month_name}|{month_abbr})\b", q):
+            return month_number
+    return None
+
+
+def _analyze_parameter(site, keys, start=None, end=None, last_n=None, month=None):
+    """Deterministic statistics for one parameter group at a resolved site.
+
+    keys: compatible PARAMETERS keys; the most-observed unit is used and
+    incompatible units are never pooled.
+    """
+    key = max(keys, key=lambda k: site[PARAMETERS[k][0]].count())
+    col, label, unit = PARAMETERS[key]
+    rows = site.dropna(subset=[col, "monitoring_datetime"]).copy()
+
+    if month is not None:
+        rows = rows[rows["monitoring_datetime"].dt.month == month]
+    if rows.empty:
+        return {"context": f"No usable {label} readings for {site['label'].iloc[0]} ({unit}).", "chart": []}
+
+    if start is not None or end is not None:
+        lo = start if start is not None else int(rows["monitoring_year"].min())
+        hi = end if end is not None else int(rows["monitoring_year"].max())
+        rows = rows[rows["monitoring_year"].between(lo, hi)]
+    elif last_n:
+        latest = int(rows["monitoring_year"].max())
+        rows = rows[rows["monitoring_year"] >= latest - last_n + 1]
+    if rows.empty:
+        return {"context": f"No {label} measurements in the requested date range.", "chart": []}
 
     rows["sampling_date"] = rows["monitoring_datetime"].dt.date
-    daily = rows.groupby("sampling_date", as_index=False).agg({col:"median", "monitoring_year":"first"})
-    annual = daily.groupby("monitoring_year").agg(median=(col,"median"), sampling_days=(col,"count")).reset_index()
+    daily = rows.groupby("sampling_date", as_index=False).agg({col: "median", "monitoring_year": "first"})
+    annual = daily.groupby("monitoring_year").agg(median=(col, "median"), sampling_days=(col, "count")).reset_index()
     annual = annual.sort_values("monitoring_year")
     annual["monitoring_year"] = annual["monitoring_year"].astype(int)
-    chart = [{"year":int(r.monitoring_year),"median":round(float(r.median),3),"sampling_days":int(r.sampling_days)} for r in annual.itertuples(index=False)]
+    chart = [{"year": int(r.monitoring_year), "median": round(float(r.median), 3), "sampling_days": int(r.sampling_days)}
+             for r in annual.itertuples(index=False)]
     flags = pd.to_numeric(rows["quality_flag_count"], errors="coerce").fillna(0).gt(0).sum()
-    summary = [f"DATASET-VERIFIED CALCULATIONS (not source-document prose):",
+    summary = ["DATASET-VERIFIED CALCULATIONS (not source-document prose):",
                f"Waterbody/site labels: {', '.join(sorted(site['label'].unique()))}; "
                f"GPS monitoring points: {site['site_key'].nunique()}; "
                f"anchor GPS key: {site['site_key'].iloc[0]}",
@@ -793,13 +790,142 @@ def analyze_question(question: str):
         delta = ordered[col].iloc[-1] - ordered[col].iloc[0]
         summary.append(f"First-to-last sampled-day difference: {delta:+.3f} {unit}; "
                        "this is only an observed difference, not evidence of a long-term trend.")
-    if len(chart)>=2:
+    if len(chart) >= 2:
         summary.append(f"Earliest-vs-latest observed year median difference: {chart[-1]['median']-chart[0]['median']:+.3f} {unit}. "
                        "This is not a validated causal or season-adjusted trend.")
+    return {"context": "\n".join(summary), "chart": chart, "label": label, "unit": unit,
+            "parameter": KEY_TO_GROUP[key]}
+
+
+def _closing_notes(site):
+    notes = []
     if site["site_key"].nunique() > 1:
-        summary.append("WATERBODY GROUPING: Combined nearby monitoring points with matching distinctive place names "
-                       "and compatible waterbody labels within 100 m. This is not a verified hydrologic/site identity match. "
-                       "Measurements at different points should not be represented as the same station.")
-    summary.append("IMPORTANT: Observation dates may be unevenly spaced and seasonally biased. Do not infer safety, cause, or wildlife harm from these data alone. "
-                   "Avoid claiming statistical significance without testing. If annual samples are sparse, say so.")
-    return {"context":"\n".join(summary),"chart":chart,"label":label,"unit":unit}
+        notes.append("WATERBODY GROUPING: Combined nearby monitoring points with matching distinctive place names "
+                     "and compatible waterbody labels within 100 m. This is not a verified hydrologic/site identity match. "
+                     "Measurements at different points should not be represented as the same station.")
+    notes.append("IMPORTANT: Observation dates may be unevenly spaced and seasonally biased. Do not infer safety, cause, or wildlife harm from these data alone. "
+                 "Avoid claiming statistical significance without testing. If annual samples are sparse, say so.")
+    return notes
+
+
+def _analyze_site_parameters(site, groups, start=None, end=None, last_n=None, month=None):
+    """Analyze one or more parameter groups at a site.
+
+    One group -> the original single-parameter result with an annual `chart`.
+    Several groups (or none specified) -> one combined context plus a per-parameter
+    list of annual `plots`.
+    """
+    if not groups:
+        groups = [g for g, keys in PARAMETER_GROUPS.items()
+                  if any(site[PARAMETERS[k][0]].count() for k in keys)]
+        if not groups:
+            return {"context": f"No usable measurements for the supported parameters at "
+                               f"{', '.join(sorted(site['label'].unique()))}.", "chart": []}
+
+    results = [_analyze_parameter(site, PARAMETER_GROUPS[g], start, end, last_n, month) for g in groups]
+
+    if len(results) == 1:
+        result = results[0]
+        result["context"] = "\n".join([result["context"], *_closing_notes(site)])
+        return result
+
+    contexts = [r["context"] for r in results]
+    plots = [
+        {
+            "label": f"{r['label']} ({r['unit']})",
+            "parameter": r["parameter"],
+            "kind": "annual",
+            "points": [{"year": c["year"], "median": c["median"]} for c in r["chart"]],
+        }
+        for r in results if r.get("chart")
+    ]
+    header = (f"MULTI-PARAMETER SUMMARY ({len(results)} parameters). "
+              "Each parameter below is analyzed separately; do not combine units across parameters.")
+    return {
+        "context": "\n\n".join([header, *contexts, "\n".join(_closing_notes(site))]),
+        "chart": [],
+        "plots": plots,
+    }
+
+
+def analyze_question(question: str, plan: dict | None = None):
+    """Analyze MonitorWater CSV questions.
+
+    With an AI routing `plan` (see prouter.py), the plan decides which analysis
+    runs. Without one (or with a fallback plan), the legacy regex routing is used.
+    """
+    if plan is not None and plan.get("task") != "legacy":
+        return _analyze_with_plan(question, plan)
+    return _analyze_legacy(question)
+
+
+def _analyze_with_plan(question, plan):
+    if not plan.get("needs_csv"):
+        return None
+
+    task = plan.get("task")
+    site_text = plan.get("site") or question
+
+    if task == "wqi":
+        return calculate_wqi(question, force=True, site_text=site_text)
+
+    if task == "ranking":
+        return analyze_dataset_wide(question, force=True)
+
+    df = _load()
+    site, error = _find_site(df, site_text)
+    if error and site_text != question:
+        # The router's site text may be partial; retry on the full question.
+        site, error = _find_site(df, question)
+    if error:
+        return {"context": error, "chart": []}
+
+    if task == "inventory":
+        return get_available_parameters(site)
+
+    # trend / values
+    return _analyze_site_parameters(
+        site,
+        plan.get("parameters") or [],
+        start=plan.get("start_year"),
+        end=plan.get("end_year"),
+        last_n=plan.get("last_n_years"),
+        month=plan.get("month"),
+    )
+
+
+def _analyze_legacy(question):
+    """Original regex-based routing; used only when the AI router is unavailable."""
+    wqi_result = calculate_wqi(question)
+    if wqi_result is not None:
+        return wqi_result
+
+    dataset_result = analyze_dataset_wide(question)
+    if dataset_result is not None:
+        return dataset_result
+
+    if _available_parameters_intent(question):
+        df = _load()
+        site, error = _find_site(df, question)
+        if error:
+            return {"context": error, "chart": []}
+        return get_available_parameters(site)
+
+    if not _analysis_intent(question):
+        return None
+
+    param = _parameter(question)
+    if param is None:
+        return None
+
+    df = _load()
+    site, error = _find_site(df, question)
+    if error:
+        return {"context": error, "chart": []}
+
+    group = KEY_TO_GROUP[
+        "dissolved oxygen (mg/l)" if param == "oxygen_auto"
+        else "turbidity (ntu)" if param == "turbidity_auto" else param
+    ]
+    start, end, last_n = _year_filters_from_text(question)
+    return _analyze_site_parameters(site, [group], start, end, last_n, _month_from_text(question))
