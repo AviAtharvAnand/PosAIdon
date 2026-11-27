@@ -71,7 +71,8 @@ def _analysis_intent(q):
 
     # Statistical and historical questions.
     return bool(re.search(
-        r"\b(trend|historical|history|average|mean|median|"
+        r"\b(graph|graphs|chart|charts|plot|plots|visualize|visualise|"
+        r"trend|trends|historical|history|average|mean|median|"
         r"minimum|maximum|over time|change|changed|"
         r"compare|comparison|measurements|readings|"
         r"data|recorded|yearly|annual|"
