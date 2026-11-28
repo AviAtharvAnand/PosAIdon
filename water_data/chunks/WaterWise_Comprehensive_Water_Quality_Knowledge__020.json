@@ -2,5 +2,6 @@
   "id": "WaterWise_Comprehensive_Water_Quality_Knowledge__020",
   "source_url": "https://github.com/AviAtharvAnand/PosAIdon/blob/main/water_markdown/WaterWise_Comprehensive_Water_Quality_Knowledge.md",
   "title": "Waterwise_Comprehensive_Water_Quality_Knowledge",
-  "text": "**Source and use note:** This Markdown file is an independently written educational synthesis supported by the linked government publications. It does not reproduce those publications verbatim, provide official certification, or supply a complete regulatory threshold database. Check the cited sources and applicable jurisdictional standards for site-specific regulatory use."
+  "section": "6.1 Recommended metadata fields",
+  "text": "[Water Quality: Scientific Foundations, Aquatic Ecosystem Health, Pollutants, and Responsible Data Interpretation › 6. Understanding time trends and monitoring data › 6.1 Recommended metadata fields]\n### 6.1 Recommended metadata fields\n\nFor each observation, preserve where available:\n- `site_id`, `site_name`, `latitude`, `longitude`, `waterbody_type`\n- `sample_datetime`, `timezone`, `sample_depth_m`\n- `parameter`, `result_value`, `result_unit`\n- `sampling_method`, `instrument`, `laboratory_method`\n- `detection_flag`, `detection_limit`, `qualifier`\n- `source_dataset`, `source_record_id`, `quality_flags`"
 }

@@ -23,7 +23,7 @@ coll = chromadb.PersistentClient(path="./chroma_db").get_or_create_collection("w
 def search(query: str, k: int = 5) -> list[dict]:
     res = coll.query(query_embeddings=[embed(query)], n_results=k)
     return [
-        {"text": d, "source_url": m["source_url"], "title": m["title"], "score": s}
+        {"text": d, "source_url": m["source_url"], "title": m["title"], "section": m.get("section", ""), "score": s}
         for d, m, s in zip(res["documents"][0], res["metadatas"][0], res["distances"][0])
     ]
  

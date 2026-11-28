@@ -11,6 +11,7 @@ import httpx
 import re
 from panalyze import analyze_question
 from prouter import interpret_question
+from preadings import classify_readings, format_readings_message
 import pandas as pd
 from pathlib import Path
 
@@ -56,11 +57,71 @@ with st.sidebar:
     else:
         st.warning("Dataset file is unavailable.")
 
+    st.divider()
+
+    with st.expander("🧪 Analyze my readings"):
+        with st.form("readings_form", border=False):
+            ph_value = st.number_input(
+                "pH", min_value=0.0, max_value=14.0,
+                value=None, step=0.1, placeholder="e.g. 7.2"
+            )
+            do_value = st.number_input(
+                "Dissolved oxygen (mg/L)", min_value=0.0,
+                value=None, step=0.1, placeholder="e.g. 6.5"
+            )
+            turbidity_value = st.number_input(
+                "Turbidity", min_value=0.0,
+                value=None, step=1.0, placeholder="e.g. 20"
+            )
+            turbidity_unit = st.radio(
+                "Turbidity unit", ["JTU", "NTU"], horizontal=True
+            )
+            temp_value = st.number_input(
+                "Water temperature (°C)", min_value=-5.0, max_value=50.0,
+                value=None, step=0.5, placeholder="e.g. 22"
+            )
+            readings_notes = st.text_area(
+                "Notes (optional)",
+                placeholder="What do you think may be causing these readings?"
+            )
+            submitted = st.form_submit_button(
+                "Analyze readings", use_container_width=True
+            )
+
+        if submitted:
+            reading_values = dict(
+                ph=ph_value, do_mg_l=do_value, turbidity=turbidity_value,
+                turbidity_unit=turbidity_unit, temp_c=temp_value,
+                notes=readings_notes,
+            )
+            try:
+                classified = classify_readings(**reading_values)
+            except ValueError as error:
+                st.warning(str(error))
+            else:
+                st.session_state["pending_readings"] = {
+                    "message": format_readings_message(**reading_values),
+                    **classified,
+                }
+        st.caption(
+            "Leave a field blank if you didn't measure it. Bands follow the "
+            "EarthEcho Analysis Dictionary and are not safety standards."
+        )
+
 # - If the CSV has no matching observation, clearly state that the requested data is unavailable.
 # - Never invent numerical measurements.
 system_prompt ={
             "role": "system", "content": 
             """
+                Scope: you only help with water quality, aquatic ecosystems, MonitorWater
+                data and the EarthEcho Analysis Dictionary. Politely decline requests that
+                are clearly unrelated (creative writing on other subjects, coding, sports,
+                finance, other homework) in one or two sentences, without completing them.
+                Creative or educational formats ABOUT water topics (a poem about rivers, an
+                analogy for dissolved oxygen) are in scope. Health questions about water
+                exposure are in scope: never give medical or medication advice; direct the
+                person to a doctor, poison control or local health authority.
+
                 For every question:
                 - If MONITORWATER CSV ANALYSIS is provided, treat it as the authoritative source for historical measurements, dates, locations, and calculated statistics.
                 - Answer questions about specific measurements directly using the CSV results.
@@ -87,13 +148,48 @@ system_prompt ={
                 - Never invent measurements missing from the CSV.
                 - Do not treat reference ranges as universal safety standards.
                 - Do not calculate a Water Quality Index using this dictionary alone.
+                - You only see retrieved excerpts, not the whole dictionary. Never claim the
+                  dictionary "does not contain", "has no rule for" or "does not mention"
+                  something, and never say a section is "cut off". If the excerpts do not
+                  cover it, say "the retrieved excerpts don't cover this".
+                - Each excerpt starts with its [heading path]. Use the section whose heading
+                  matches the question: for two or three parameters together, use the
+                  "Sheet 2 — Interacting parameter combinations" section for that exact
+                  combination before single-parameter rules.
+                - When a raw value is given without site history, give its "Sheet 3 —
+                  Individual parameter raw-value reference bands" category, and note when
+                  Sheet 1 prefers z-scores against the same site and season.
+                - PosAIdon policy: when a reading's raw value and its z-score point to
+                  DIFFERENT categories, the RAW VALUE determines the category. Example:
+                  30 JTU with z = 1.5 is Good (by value), not Fair; pH 8.8 with z = +2.4 is
+                  In Range (by value), not Too high. Then add that the z-score shows the
+                  reading is unusual for that site and season (state which category the
+                  z-score alone would suggest) and recommend confirming with repeat sampling.
+                  Present this as PosAIdon's policy, not as a rule stated in the dictionary.
+                - If only a z-score is given (no raw value band applies, e.g. temperature),
+                  classify by the z-score.
+                - For a follow-up question ("what could cause that?", "what should I do
+                  next?"), answer for the site, parameter and finding from the previous
+                  turn only. Do not list causes or steps for every parameter.
 
                 For historical trend questions:
                 - If year-by-year statistics are present in MONITORWATER CSV ANALYSIS, report those statistics directly.
                 - Do not say yearly data is unavailable when annual measurements or annual summaries are provided.
                 - Distinguish observed changes from a statistically validated trend.
+                - No statistical trend test is run. Never describe data as a "rising",
+                  "falling", "increasing", "decreasing", "improving" or "worsening" trend.
+                  Report the yearly values and call the difference an observed difference.
                 - If only an overall median is provided, do not invent annual values.
                 - Never substitute data from a previous monitoring site.
+
+                When USER-SUBMITTED READINGS are provided:
+                - These are the user's own measurements, not MonitorWater CSV data.
+                - Use the bands and combinations exactly as assigned; do not re-band values.
+                - Explain each band, any matching combination rule, possible causes
+                  (as hypotheses), ecological effects, and re-testing steps from the
+                  EarthEcho Analysis Dictionary.
+                - Consider the user's notes, but do not treat them as confirmed causes.
+                - Never declare the water safe or unsafe.
             """
             }
 
@@ -199,7 +295,8 @@ def display_sources(chunks):
     with st.expander("📚 Sources"):
         for chunk in chunks:
             st.markdown(
-                f"- [{chunk['title']}]({chunk['source_url']}) "
+                f"- [{chunk['title']}]({chunk['source_url']})"
+                f"{' › ' + chunk['section'] if chunk.get('section') else ''} "
                 f"*(distance: {chunk['score']:.3f}, "
                 f"reranked: {chunk['rank_score']:.3f})*"
             )
@@ -219,6 +316,14 @@ for msg in st.session_state.messages:
                 )
                 display_sources(msg.get("chunks", []))
 
+
+OFF_TOPIC_REPLY = (
+    "I'm PosAIdon, and I can only help with water quality: MonitorWater "
+    "monitoring data, the EarthEcho Analysis Dictionary, and interpreting "
+    "readings such as pH, dissolved oxygen, turbidity and temperature. "
+    "Try asking about a monitoring site, a reading you took, or what a "
+    "parameter means."
+)
 
 STOP_WORDS = {
     "a", "an", "the", "is", "are", "i", "you", "we",
@@ -248,7 +353,8 @@ def rerank(question: str, chunks: list[dict]) -> list[dict]:
             query_phrases.append(phrase)
 
     for chunk in chunks:
-        title = chunk["title"].lower()
+        # Section headings (e.g. "pH — Too high (alkaline)") count as title words.
+        title = f"{chunk['title']} {chunk.get('section', '')}".lower()
         text = chunk["text"].lower()
         combined_text = f"{title} {text}"
 
@@ -357,24 +463,44 @@ def token_stream(messages):
 
             yield content
 
-if prompt := st.chat_input("Ask about Water Quality..."):
+# A question comes either from the chat box or from the "Analyze my readings" form.
+readings = st.session_state.pop("pending_readings", None)
+typed_prompt = st.chat_input("Ask about Water Quality...")
+if typed_prompt:
+    readings = None
+prompt = typed_prompt or (readings["message"] if readings else None)
+
+if prompt:
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.write(prompt)
 
     try:
         with st.spinner("Searching Water Quality docs..."):
-            # One AI call decides routing: standalone rewrite, whether CSV
-            # data is needed, which site/parameters, and whether to chart.
-            plan = interpret_question(
-                st.session_state.messages[:-1],
-                prompt,
-            )
-            standalone_query = plan["standalone_question"]
+            if readings:
+                # User-entered readings: banded in code, no CSV lookup or chart.
+                plan = {
+                    "standalone_question": prompt,
+                    "needs_csv": False,
+                    "task": "none",
+                    "parameters": [],
+                    "wants_chart": False,
+                    "source": "readings_form",
+                }
+                standalone_query = prompt
+                water_result = None
+            else:
+                # One AI call decides routing: standalone rewrite, whether CSV
+                # data is needed, which site/parameters, and whether to chart.
+                plan = interpret_question(
+                    st.session_state.messages[:-1],
+                    prompt,
+                )
+                standalone_query = plan["standalone_question"]
 
-            # CSV statistics are computed whenever the question needs them,
-            # independent of whether a chart is shown.
-            water_result = analyze_question(standalone_query, plan)
+                # CSV statistics are computed whenever the question needs them,
+                # independent of whether a chart is shown.
+                water_result = analyze_question(standalone_query, plan)
             print("QUERY:", standalone_query, flush=True)
             print("RESULT KEYS:", list(water_result.keys()) if water_result else None, flush=True)
             print("PLOTS:", len(water_result.get("plots", [])) if water_result else 0, flush=True)
@@ -399,24 +525,31 @@ if prompt := st.chat_input("Ask about Water Quality..."):
             ):
                 st.session_state["last_water_query"] = standalone_query
 
-            search_query = rewrite_search_query(standalone_query)
-            retrieved = search(search_query, k=10)
+            # Clearly off-topic requests get a fixed decline: no search, no LLM.
+            off_topic = plan.get("task") == "off_topic"
+
+            search_query = (
+                readings["search_query"] if readings
+                else rewrite_search_query(standalone_query)
+            )
+            retrieved = [] if off_topic else search(search_query, k=15)
             reranked = rerank(search_query, retrieved)
 
             print("All retrieved and reranked chunks:", flush=True)
             for index, chunk in enumerate(reranked, start=1):
                 print(
-                    f"{index}. {chunk['title']} | "
+                    f"{index}. {chunk['title']} › {chunk.get('section', '')} | "
                     f"distance: {chunk['score']:.3f} | "
                     f"reranked: {chunk['rank_score']:.3f}",
                     flush=True,
                 )
 
-            if not reranked and water_result is None:
+            if not reranked and water_result is None and not off_topic:
                 st.error("No documentation chunks were returned by search.")
                 st.stop()
 
-            chunks = reranked[:5]
+            # Chunks are single sections now (~800 chars), so send a few more.
+            chunks = reranked[:8]
 
             print(f"Original question: {prompt}", flush=True)
             print(f"Rewritten search query: {search_query}", flush=True)
@@ -451,6 +584,8 @@ if prompt := st.chat_input("Ask about Water Quality..."):
             + "\n\n"
             + context
         )
+    if readings:
+        context = readings["context"] + "\n\n" + context
     print("\n" + "=" * 80, flush=True)
     print("FULL CONTEXT SENT TO LLM", flush=True)
     print("=" * 80, flush=True)
@@ -473,6 +608,14 @@ if prompt := st.chat_input("Ask about Water Quality..."):
     use those exact dates to answer the user's question.
     - Do not claim that a date or measurement is unavailable when
     it is explicitly included in the CSV analysis.
+
+    If USER-SUBMITTED READINGS are provided:
+    - Go through each reading and explain its assigned band using the
+    EarthEcho Analysis Dictionary.
+    - If a combination is listed, explain that interaction rule.
+    - Give possible causes as hypotheses, likely ecological effects,
+    and concrete re-testing next steps.
+    - Do not re-band values or claim the water is safe or unsafe.
 
     QUESTION:
     {prompt}
@@ -504,7 +647,11 @@ if prompt := st.chat_input("Ask about Water Quality..."):
         print(f"Total prompt size: {prompt_characters} characters", flush=True)
         try:
             with st.spinner("Generating answer..."):
-                answer = st.write_stream(token_stream(messages_for_llm))
+                if off_topic:
+                    answer = OFF_TOPIC_REPLY
+                    st.markdown(answer)
+                else:
+                    answer = st.write_stream(token_stream(messages_for_llm))
 
                 # Charts are shown when the router judged them useful.
                 display_charts(water_result, plan)

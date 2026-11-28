@@ -1,0 +1,7 @@
+{
+  "id": "PosAIdon_EarthEcho_Analysis_Dictionary__047",
+  "source_url": "https://github.com/AviAtharvAnand/PosAIdon/blob/main/water_markdown/PosAIdon_EarthEcho_Analysis_Dictionary.md",
+  "title": "Posaidon_Earthecho_Analysis_Dictionary",
+  "section": "Notes for PosAIdon",
+  "text": "[EarthEcho Water-Quality Analysis Dictionary — PosAIdon Knowledge Reference › Notes for PosAIdon]\n## Notes for PosAIdon\n\n1. When the user asks what a specific measurement means, start with the actual data, then use the corresponding controlled rule as contextual interpretation.\n2. When a question concerns two or three parameters, look up their combination rule, but confirm all readings are paired by date and site before relating them.\n3. If the user asks for WQI, this dictionary cannot by itself produce a certified numeric WQI. Use an explicitly specified methodology with objectives, unit handling, and sufficiency checks.\n4. If sources conflict or a threshold is ambiguous, state the uncertainty rather than inventing a rule."
+}

@@ -78,7 +78,7 @@
 
 **Indication:** Hotter than usual
 
-**Meaning/Potential Cause:** Loss of vegetation, urban stormwater runoff, thermal pollution, drought, high air temperatures, climate change, impoundments, grouundwater inflow, turbidity
+**Meaning/Potential Cause:** Loss of vegetation, urban stormwater runoff, thermal pollution, drought, high air temperatures, climate change, impoundments, groundwater inflow, turbidity
 
 **Re-Testing Next Steps:** Repeat reading at comparable time/depth; measure DO, especially near dawn.
 
@@ -118,7 +118,7 @@
 
 **Effects:** Often no negative effects
 
-**Considerations:** Different organisms vary greatly in the pH ranges they can tolerate. As pH becomes untolerable, some organisms may die off or begin to avoid water. Further, it is important to consider that although a species may be able to tolerate a pH level, its food source may not be able to.
+**Considerations:** Different organisms vary greatly in the pH ranges they can tolerate. As pH becomes intolerable, some organisms may die off or begin to avoid water. Further, it is important to consider that although a species may be able to tolerate a pH level, its food source may not be able to.
 
 ### pH — Too low (acidic)
 
@@ -132,7 +132,7 @@
 
 **Potential Interventions:** Reduce excess fertilizer inputs and manage acidic runoff; investigate mine, landfill, or industrial sources with local water authorities. Do not add chemicals to neutralize the water. Avoid abrupt changes.
 
-**Effects:** Damage of fish gills, fins, and exoskeletons; harms fish egg viability which can lead to loss of senstivie species and biodiversity. Higher acidity can lead to the conversion of mercury into methlymercury (a neurotoxin) that can build up through the food web leading to disease and death.
+**Effects:** Damage of fish gills, fins, and exoskeletons; harms fish egg viability which can lead to loss of sensitive species and biodiversity. Higher acidity can lead to the conversion of mercury into methylmercury (a neurotoxin) that can build up through the food web leading to disease and death.
 
 **Considerations:** Active photosynthesis by algae or aquatic plants consumes CO₂ and can drive pH up during the day, dropping overnight as respiration adds CO₂
 
@@ -150,9 +150,9 @@
 
 **Potential Interventions:** Prevent lawn-lime, concrete washout, and construction runoff; reduce nitrogen/phosphorus inputs. Report persistent extreme pH or suspected industrial discharges; avoid chemical dosing. Avoid abrupt changes.
 
-**Effects:** Damage of fish gills, fins, and exoskeletons; harms fish egg viability which can lead to loss of senstivie species and biodiversity. High pH can lead nitrogen balance towards unionized ammonia which is very toxic to aquatic organisms.
+**Effects:** Damage of fish gills, fins, and exoskeletons; harms fish egg viability which can lead to loss of sensitive species and biodiversity. High pH can lead nitrogen balance towards un-ionized (unionized) ammonia which is very toxic to aquatic organisms.
 
-**Considerations:** Active photosynthesis by algae or aquatic plants consumes CO₂ and can drive pH up during the day, dropping overnight as respiration adds CO₂. Hard/mineral-rich source water, limestone, coral rock, shells, and unsealed cement can raise pH. Higher pH can lead to higher unionized ammonia which becomes especially toxic when paried with warmer water.
+**Considerations:** Active photosynthesis by algae or aquatic plants consumes CO₂ and can drive pH up during the day, dropping overnight as respiration adds CO₂. Hard/mineral-rich source water, limestone, coral rock, shells, and unsealed cement can raise pH. Higher pH can lead to higher un-ionized (unionized) ammonia which becomes especially toxic when paired with warmer water.
 
 **Notes:** Could we add a section to the readings, where the user can include notes on what they think may be causing the change? How does high v. low pH affect fish differently?
 
@@ -228,7 +228,7 @@
 
 **Indication:** Very Low
 
-**Meaning/Potential Cause:** Fertilizer runoff, sewage contamination, elevated water temperature, slow-moving water, organic matter, algal blooms (night), poorly maintaned septic systems, tree removal, water dam, vertical mixing blocked by layers of salt and freshwater
+**Meaning/Potential Cause:** Fertilizer runoff, sewage contamination, elevated water temperature, slow-moving water, organic matter, algal blooms (night), poorly maintained septic systems, tree removal, water dam, vertical mixing blocked by layers of salt and freshwater
 
 **Re-Testing Next Steps:** Repeat DO at dawn and afternoon and record temperature. CHECK FOR FISH DISTRESS
 
@@ -278,7 +278,7 @@
 
 **Indication:** High
 
-**Meaning/Potential Cause:** Cold water temperatures, fast-flowing water, nutrient enrichment, high photosynthetic activity, artificial aearation, high sunlight, excessive algae growth (day), low salinity
+**Meaning/Potential Cause:** Cold water temperatures, fast-flowing water, nutrient enrichment, high photosynthetic activity, artificial aeration, high sunlight, excessive algae growth (day), low salinity
 
 **Re-Testing Next Steps:** Repeat DO at dawn and afternoon and record temperature.
 
@@ -300,7 +300,7 @@
 
 **Re-Testing Next Steps:** Verify temperature and DO at matched sites/times, with a preference for dawn for DO readings (DO is lowest) and a preference for midafternoon for temperature. Check low flow and warm outfalls.
 
-**Potential Interventions:** Restore riparian shade, reduce heated urban stormwater through infiltration or rain gardens, investigate any thermal discharges (such as power plants). Alert to local wildlife authorities if wildlife are clearly disstressed.
+**Potential Interventions:** Restore riparian shade, reduce heated urban stormwater through infiltration or rain gardens, investigate any thermal discharges (such as power plants). Alert to local wildlife authorities if wildlife are clearly distressed.
 
 **Interaction Notes:** Due to increase heat absorption of water and light penetration (EPA)
 
@@ -322,7 +322,7 @@
 
 **Re-Testing Next Steps:** Measure dawn/afternoon DO and pH and look for blooms
 
-**Potential Interventions:** Establish daily changes due to natural biological processes; test nitrogen/phosphorus when feasible. Reduce lawn/agricultural fertilizer and wastewater/septic nutrient inputs; restore vegetated buffers, manage stormwater. Alert to local wildlife authorities if wildlife are clearly disstressed.
+**Potential Interventions:** Establish daily changes due to natural biological processes; test nitrogen/phosphorus when feasible. Reduce lawn/agricultural fertilizer and wastewater/septic nutrient inputs; restore vegetated buffers, manage stormwater. Alert to local wildlife authorities if wildlife are clearly distressed.
 
 **Interaction Notes:** As photosynthesis occurs, pH may increase throughout the day. At night, as photosynthesis ceases, pH decreases.
 
@@ -344,7 +344,7 @@
 
 **Re-Testing Next Steps:** Confirm pH and DO and sample upstream/downstream before and after a suspected pollution source;
 
-**Potential Interventions:** Consider metals, conductivity, nutrients and microbial testing. Investigate mine/industrial discharge, wastewater/septic leaks and decaying organics; control the identified source. Alert to local wildlife authorities if wildlife are clearly disstressed
+**Potential Interventions:** Consider metals, conductivity, nutrients and microbial testing. Investigate mine/industrial discharge, wastewater/septic leaks and decaying organics; control the identified source. Alert to local wildlife authorities if wildlife are clearly distressed
 
 ### pH High, DO High
 
@@ -436,9 +436,9 @@
 
 **Range:** >86 F
 
-**Meaning/Potential Cause:** Loss of vegetation, urban stormwater runoff, thermal pollution, drought, high air temperatures, climate change, impoundments, grouundwater inflow, turbidity
+**Meaning/Potential Cause:** Loss of vegetation, urban stormwater runoff, thermal pollution, drought, high air temperatures, climate change, impoundments, groundwater inflow, turbidity
 
-**Notes:** Reduced or blocked sexual maturation, inhibited or blocked critical stages of larval development, reduced feeding feeding anf growth, increased susceptibility to predation, reduced productivity of macroalgae, increased death (EPA).
+**Notes:** Reduced or blocked sexual maturation, inhibited or blocked critical stages of larval development, reduced feeding and growth, increased susceptibility to predation, reduced productivity of macroalgae, increased death (EPA).
 
 ### pH — In Range
 
@@ -486,7 +486,7 @@
 
 **Range:** 3-5 mg/L
 
-**Meaning/Potential Cause:** Fertilizer runoff, sewage contamination, elevated temperature, slow-moving water, organic matter, algal blooms (night), poorly maintaned septic systems, tree removal
+**Meaning/Potential Cause:** Fertilizer runoff, sewage contamination, elevated temperature, slow-moving water, organic matter, algal blooms (night), poorly maintained septic systems, tree removal
 
 **Notes:** Time of day matters, especially for algae
 
@@ -496,9 +496,9 @@
 
 ### Dissolved Oxygen — High
 
-**Range:** >8 mg/ML
+**Range:** >8 mg/L
 
-**Meaning/Potential Cause:** Cold water temperatures, fast-flowing water, nutrient enrichment, high photosynthetic activity, artificial aearation, high sunlight, excessive algae growth (day)
+**Meaning/Potential Cause:** Cold water temperatures, fast-flowing water, nutrient enrichment, high photosynthetic activity, artificial aeration, high sunlight, excessive algae growth (day)
 
 ## Notes for PosAIdon
 

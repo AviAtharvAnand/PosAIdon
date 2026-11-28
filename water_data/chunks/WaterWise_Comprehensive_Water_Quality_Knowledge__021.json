@@ -1,0 +1,7 @@
+{
+  "id": "WaterWise_Comprehensive_Water_Quality_Knowledge__021",
+  "source_url": "https://github.com/AviAtharvAnand/PosAIdon/blob/main/water_markdown/WaterWise_Comprehensive_Water_Quality_Knowledge.md",
+  "title": "Waterwise_Comprehensive_Water_Quality_Knowledge",
+  "section": "6.2 Minimum exploratory checks before describing a trend",
+  "text": "[Water Quality: Scientific Foundations, Aquatic Ecosystem Health, Pollutants, and Responsible Data Interpretation › 6. Understanding time trends and monitoring data › 6.2 Minimum exploratory checks before describing a trend]\n### 6.2 Minimum exploratory checks before describing a trend\n\n1. **Location identity:** Are repeated measurements truly from the same location and waterbody?\n2. **Unit consistency:** Are numeric values measured using compatible scales?\n3. **Calendar coverage:** Which years and months are represented?\n4. **Sampling frequency:** Were there multi-month or multi-year gaps?\n5. **Sample count:** How many distinct sampling dates support each annual or seasonal estimate?\n6. **Timing and depth:** Were measurements taken at comparable times of day and depths?\n7. **Data quality:** Are extreme values, repeated exact values, impossible dates, or duplicated events present?\n8. **Method changes:** Did observers, instruments, detection limits, or protocols change?"
+}

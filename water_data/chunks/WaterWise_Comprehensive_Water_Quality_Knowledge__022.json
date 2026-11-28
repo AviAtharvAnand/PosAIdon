@@ -1,0 +1,7 @@
+{
+  "id": "WaterWise_Comprehensive_Water_Quality_Knowledge__022",
+  "source_url": "https://github.com/AviAtharvAnand/PosAIdon/blob/main/water_markdown/WaterWise_Comprehensive_Water_Quality_Knowledge.md",
+  "title": "Waterwise_Comprehensive_Water_Quality_Knowledge",
+  "section": "6.3 Useful calculations",
+  "text": "[Water Quality: Scientific Foundations, Aquatic Ecosystem Health, Pollutants, and Responsible Data Interpretation › 6. Understanding time trends and monitoring data › 6.3 Useful calculations]\n### 6.3 Useful calculations\n\n- **Count and coverage:** observation count, distinct sampling days, number of years, longest gap.\n- **Typical condition:** median, mean (where appropriate), interquartile range, minimum, maximum.\n- **Seasonal comparison:** compare similar months or seasons across years.\n- **Annual summaries:** year-by-year median with count labels and uncertainty where estimable.\n- **Trend direction:** calculate a regression slope or robust Theil–Sen slope on a scientifically appropriate time basis; optionally assess monotonic trend with Kendall's tau.\n- **Threshold screening:** proportion of observed sampling events below or above a defensible, explicitly named threshold. Report the denominator and whether events represent similar times/seasons."
+}

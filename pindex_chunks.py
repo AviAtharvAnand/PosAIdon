@@ -31,7 +31,7 @@ coll.add(
     ids=[c["id"] for c in chunks],
     documents=[c["text"] for c in chunks],
     embeddings=[embed(c["text"]) for c in chunks],
-    metadatas=[{"source_url": c["source_url"], "title": c["title"]} for c in chunks],
+    metadatas=[{"source_url": c["source_url"], "title": c["title"], "section": c.get("section", "")} for c in chunks],
 )
 
 print(f"Indexed {coll.count()} chunks.")

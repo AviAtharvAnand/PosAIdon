@@ -1,0 +1,7 @@
+{
+  "id": "WaterWise_Comprehensive_Water_Quality_Knowledge__030",
+  "source_url": "https://github.com/AviAtharvAnand/PosAIdon/blob/main/water_markdown/WaterWise_Comprehensive_Water_Quality_Knowledge.md",
+  "title": "Waterwise_Comprehensive_Water_Quality_Knowledge",
+  "section": "Q: No PFAS measurements are recorded for this river. Does it have no PFAS?",
+  "text": "[Water Quality: Scientific Foundations, Aquatic Ecosystem Health, Pollutants, and Responsible Data Interpretation › 8. Practical interpretation examples for a chatbot › Q: No PFAS measurements are recorded for this river. Does it have no PFAS?]\n### Q: No PFAS measurements are recorded for this river. Does it have no PFAS?\n\n**Suggested answer:** No. The absence of PFAS test records indicates that no usable measurements were found in this dataset and search scope; it is not evidence of absence. Even a reported laboratory non-detect means the compound was not detected at the method's reporting capability, not necessarily that its concentration was zero."
+}

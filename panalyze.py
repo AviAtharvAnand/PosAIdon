@@ -3,6 +3,8 @@ from pathlib import Path
 import re
 import pandas as pd
 import calendar
+from functools import lru_cache
+from preadings import BAND_RULES
 
 CSV_PATH = Path(__file__).resolve().parent / "water_csv" / "monitorwater_cleaned.csv"
 
@@ -13,6 +15,18 @@ PARAMETERS = {
     "dissolved oxygen (ppm)": ("dissolved_oxygen_ppm", "Dissolved oxygen", "ppm"),
     "turbidity (ntu)": ("turbidity_ntu", "Turbidity", "NTU"),
     "turbidity (jtu)": ("turbidity_jtu", "Turbidity", "JTU"),
+    # Additional parameters; each unit stays separate and is never converted or pooled.
+    "salinity (ppt)": ("salinity_ppt", "Salinity", "ppt"),
+    "salinity (psu)": ("salinity_psu", "Salinity", "PSU"),
+    "salinity (us/cm)": ("salinity_us_cm", "Salinity as conductivity", "µS/cm"),
+    "salinity (mg/l)": ("salinity_mg_l", "Salinity", "mg/L"),
+    "salinity (g/kg)": ("salinity_g_kg", "Salinity", "g/kg"),
+    "nitrate (n)": ("nitrate_mg_l_n", "Nitrate", "mg/L as N"),
+    "nitrate (no3)": ("nitrate_mg_l_no3", "Nitrate", "mg/L as NO3"),
+    "nitrite (n)": ("nitrite_mg_l_n", "Nitrite", "mg/L as N"),
+    "nitrite (no2)": ("nitrite_mg_l_no2", "Nitrite", "mg/L as NO2"),
+    "phosphate (p)": ("phosphate_mg_l_p", "Phosphate", "mg/L as P"),
+    "phosphate (po3)": ("phosphate_mg_l_po3", "Phosphate", "mg/L as PO3"),
 }
 
 # Router parameter names -> compatible PARAMETERS keys (different units never pooled).
@@ -21,6 +35,10 @@ PARAMETER_GROUPS = {
     "dissolved_oxygen": ["dissolved oxygen (mg/l)", "dissolved oxygen (ppm)"],
     "temperature": ["water temperature"],
     "turbidity": ["turbidity (ntu)", "turbidity (jtu)"],
+    "salinity": ["salinity (ppt)", "salinity (psu)", "salinity (us/cm)", "salinity (mg/l)", "salinity (g/kg)"],
+    "nitrate": ["nitrate (n)", "nitrate (no3)"],
+    "nitrite": ["nitrite (n)", "nitrite (no2)"],
+    "phosphate": ["phosphate (p)", "phosphate (po3)"],
 }
 KEY_TO_GROUP = {key: group for group, keys in PARAMETER_GROUPS.items() for key in keys}
 
@@ -33,7 +51,7 @@ def _load():
     # Keep as a normal function; Streamlit caches it at the application layer.
     if not CSV_PATH.is_file():
         raise FileNotFoundError(f"Missing dataset: {CSV_PATH}")
-    cols = ["Site visited", "Waterbody name", "Surface water type", "latitude", "longitude", "site_key", "monitoring_datetime", "monitoring_year", "quality_flag_count", *[v[0] for v in PARAMETERS.values()]]
+    cols = ["Site visited", "Waterbody name", "Surface water type", "latitude", "longitude", "site_key", "monitoring_datetime", "monitoring_year", "quality_flag_count", "quality_flags", "Fecal Coliform", *[v[0] for v in PARAMETERS.values()]]
     df = pd.read_csv(CSV_PATH, usecols=cols, low_memory=False)
     df["monitoring_datetime"] = pd.to_datetime(df["monitoring_datetime"], errors="coerce")
     df["monitoring_year"] = pd.to_numeric(df["monitoring_year"], errors="coerce")
@@ -280,6 +298,7 @@ def get_available_parameters(site):
         }
 
     context = (
+        _site_profile(site) + "\n\n"
         "DATASET-VERIFIED MONITORWATER MEASUREMENT INVENTORY:\n"
         f"Location: {labels}\n"
         f"GPS monitoring points: {gps_points}\n\n"
@@ -368,15 +387,17 @@ def analyze_dataset_wide(question, force=False):
     # Rank by median pH if requested.
     if "ph" in q and is_ranking:
 
+        # Group by GPS point AND site name, so differently named sites
+        # sharing one GPS point are never merged under a single label.
         ph_sites = (
             sites.dropna(subset=["ph_clean"])
-            .groupby("site_key")
+            .groupby(["site_key", "label"])
             .agg(
-                site_name=("label", "first"),
                 median_ph=("ph_clean", "median"),
                 sample_count=("ph_clean", "count")
             )
             .reset_index()
+            .rename(columns={"label": "site_name"})
         )
 
         # Require at least three measurements for this ranking.
@@ -395,7 +416,7 @@ def analyze_dataset_wide(question, force=False):
 
         summary.append(
             "Monitoring sites ranked by median pH "
-            "(minimum 3 valid observations per GPS site):"
+            "(minimum 3 valid observations per named site at a GPS point):"
         )
 
         for rank, row in enumerate(
@@ -408,33 +429,58 @@ def analyze_dataset_wide(question, force=False):
                 f"{row.sample_count} observations."
             )
 
+        if (ph_sites["median_ph"] >= PH_KIT_CAP).any():
+            summary.append(PH_CAP_NOTE + " Sites tied at a median of 10 may differ in true pH.")
+
     else:
-        # List the 10 most frequently sampled GPS sites.
+        def _span(first, last):
+            start = str(first.date()) if pd.notna(first) else "unknown"
+            end = str(last.date()) if pd.notna(last) else "unknown"
+            return f"{start} to {end}"
+
+        # Ranking 1: named sites (site name at one GPS point).
+        named = (
+            sites.groupby(["site_key", "label"])
+            .agg(
+                observations=("site_key", "size"),
+                first_date=("monitoring_datetime", "min"),
+                last_date=("monitoring_datetime", "max"),
+            )
+            .reset_index()
+            .sort_values("observations", ascending=False)
+            .head(10)
+        )
+        summary.append(
+            "Top 10 NAMED SITES by CSV records "
+            "(use this ranking when asked which site has the most records):"
+        )
+        for rank, row in enumerate(named.itertuples(index=False), start=1):
+            summary.append(
+                f"{rank}. {row.label} [GPS: {row.site_key}]: "
+                f"{row.observations} records, "
+                f"{_span(row.first_date, row.last_date)}."
+            )
+
+        # Ranking 2: GPS points, listing every site name recorded there.
+        label_counts = sites.groupby(["site_key", "label"]).size()
         ranked = site_summary.sort_values(
             "observations", ascending=False
         ).head(10)
-
         summary.append(
-            "Top 10 GPS sites by total CSV records:"
+            "Top 10 GPS POINTS by CSV records (a GPS point may hold "
+            "several differently named sites; their records are listed separately):"
         )
-
-        for rank, row in enumerate(
-            ranked.itertuples(index=False), start=1
-        ):
-            start = (
-                str(row.first_date.date())
-                if pd.notna(row.first_date) else "unknown"
+        for rank, row in enumerate(ranked.itertuples(index=False), start=1):
+            names = label_counts.loc[row.site_key].sort_values(ascending=False)
+            name_text = " + ".join(f"{name} ({count})" for name, count in names.items())
+            shared = (
+                f" [{len(names)} site names share this GPS point]"
+                if len(names) > 1 else ""
             )
-            end = (
-                str(row.last_date.date())
-                if pd.notna(row.last_date) else "unknown"
-            )
-
             summary.append(
-                f"{rank}. {row.site_name} "
-                f"[GPS: {row.site_key}]: "
-                f"{row.observations} records, "
-                f"{start} to {end}."
+                f"{rank}. GPS {row.site_key}: {row.observations} records "
+                f"= {name_text}{shared}, "
+                f"{_span(row.first_date, row.last_date)}."
             )
 
     summary.append(
@@ -449,6 +495,131 @@ def analyze_dataset_wide(question, force=False):
         "context": "\n".join(summary),
         "chart": []
     }
+
+@lru_cache(maxsize=1)
+def analyze_dataset_summary():
+    """Whole-dataset statistics, computed once per process (the CSV is read-only)."""
+    df = _load()
+    dates = df["monitoring_datetime"].dropna()
+    lines = [
+        "DATASET-WIDE MONITORWATER CSV SUMMARY (calculated from the complete CSV):",
+        "",
+        "TOTALS",
+        f"- Total records (rows): {len(df):,}",
+        f"- Monitoring dates: earliest {dates.min().date()}, latest {dates.max().date()}"
+        + (f" ({len(df) - len(dates):,} rows have no valid date)" if len(dates) < len(df) else ""),
+        f"- Unique monitoring sites by GPS location (site_key): {df['site_key'].nunique():,}",
+        f"- Distinct site names: {df['Site visited'].nunique():,} as recorded in the 'Site visited' column "
+        f"({df['Site visited'].dropna().astype(str).str.strip().nunique():,} after trimming extra spaces; "
+        f"{int(df['Site visited'].isna().sum()):,} rows have no site name). Names are labels: one GPS point "
+        "can hold several names and one name can occur at several points.",
+    ]
+
+    years = df["monitoring_year"].dropna().astype(int).value_counts()
+    top = years.sort_values(ascending=False)
+    lines += [
+        "",
+        "RECORDS PER YEAR",
+        f"- Year with the most records: {top.index[0]} ({top.iloc[0]:,} records)",
+        "- Top 5 years: " + "; ".join(f"{y}: {n:,}" for y, n in top.head(5).items()),
+        "- All years (year: records): " + "; ".join(f"{y}: {n:,}" for y, n in years.sort_index().items()),
+    ]
+
+    water_types = df["Surface water type"].fillna("Not recorded").value_counts()
+    lines += [
+        "",
+        "SURFACE WATER TYPES (records)",
+        "- " + "; ".join(f"{t}: {n:,}" for t, n in water_types.items()),
+    ]
+
+    fecal = df["Fecal Coliform"].dropna().astype(str).str.strip().value_counts()
+    tested = int(fecal.sum())
+    if tested:
+        present = int(fecal.get("Present", 0))
+        lines += [
+            "",
+            "FECAL COLIFORM (presence/absence test)",
+            f"- Records with a result: {tested:,}; Present: {present:,} ({100 * present / tested:.1f}%); "
+            f"Absent: {int(fecal.get('Absent', 0)):,} ({100 * fecal.get('Absent', 0) / tested:.1f}%)",
+            "- Presence/absence kits are not drinking-water tests; results do not establish safety.",
+        ]
+
+    lines += ["", "PARAMETERS (each unit reported separately)"]
+    for key, (col, label, unit) in PARAMETERS.items():
+        values = df[col].dropna()
+        if values.empty:
+            continue
+        mode = values.mode().iloc[0]
+        lines.append(
+            f"- {label} ({unit}): n={len(values):,}; median {values.median():.2f}; "
+            f"mean {values.mean():.2f}; min {values.min():g}; max {values.max():g}; "
+            f"most common value {mode:g} ({(values == mode).sum():,} readings)"
+        )
+        if col == "ph_clean":
+            lines.append("  " + PH_CAP_NOTE)
+        rule = BAND_RULES.get(col)
+        if rule:
+            band_fn, order = rule
+            counts = values.map(lambda v: band_fn(v)[0]).value_counts()
+            lines.append(
+                "  EarthEcho dictionary bands: "
+                + "; ".join(
+                    f"{b}: {int(counts.get(b, 0)):,} ({100 * counts.get(b, 0) / len(values):.1f}%)"
+                    for b in order
+                )
+            )
+    do_mg, do_ppm = df["dissolved_oxygen_mg_l"].dropna(), df["dissolved_oxygen_ppm"].dropna()
+    do_all = pd.concat([do_mg, do_ppm])
+    lines.append(
+        f"- Dissolved oxygen, mg/L and ppm combined (assumes ppm ≈ mg/L, which holds only for dilute "
+        f"freshwater): n={len(do_all):,}; median {do_all.median():.2f}. Many ppm kit readings are "
+        "whole numbers, so ppm values cluster at kit steps."
+    )
+
+    flags = (
+        df["quality_flags"].dropna().astype(str)
+        .str.split(r"[;,|]\s*").explode().str.strip()
+    )
+    flags = flags[flags.ne("")].value_counts()
+    combos = df["quality_flags"].dropna().astype(str).value_counts()
+    lines += [
+        "",
+        "DATA QUALITY FLAGS",
+        f"- Rows with at least one quality flag: {int(df['quality_flags'].notna().sum()):,}",
+        f"- Most common quality_flags value: {combos.index[0]} ({combos.iloc[0]:,} rows with only this flag)",
+        "- Rows carrying each flag, alone or with others (most common first): "
+        + "; ".join(f"{f}: {n:,}" for f, n in flags.items()),
+        "- Most common flag combinations (exact column values): "
+        + "; ".join(f"{c}: {n:,}" for c, n in combos.head(5).items()),
+        "- Flagged values need interpretation, not automatic deletion.",
+    ]
+
+    by_type = (
+        df.groupby(df["Surface water type"].fillna("Not recorded"))
+        .agg(
+            records=("label", "size"),
+            ph_median=("ph_clean", "median"), ph_n=("ph_clean", "count"),
+            temp_median=("water_temperature_c", "median"),
+            do_median=("dissolved_oxygen_mg_l", "median"), do_n=("dissolved_oxygen_mg_l", "count"),
+        )
+        .sort_values("records", ascending=False)
+    )
+    lines += ["", "MEDIANS BY SURFACE WATER TYPE"]
+    for name, r in by_type.iterrows():
+        lines.append(
+            f"- {name}: pH median {r.ph_median:.2f} (n={int(r.ph_n):,}); "
+            f"water temp median {r.temp_median:.1f} °C; "
+            f"DO median {r.do_median:.2f} mg/L (n={int(r.do_n):,})"
+        )
+
+    lines += [
+        "",
+        "IMPORTANT: These are descriptive statistics of volunteer monitoring records with uneven "
+        "sampling across sites, years and water types. Differences between groups are not tested "
+        "for significance and do not establish water safety or ecological condition.",
+    ]
+    return {"context": "\n".join(lines), "chart": []}
+
 
 def calculate_wqi(question, force=False, site_text=None):
     """Provisional CCME-method WQI using illustrative objectives.
@@ -739,6 +910,64 @@ def _month_from_text(question):
     return None
 
 
+# pH readings pile up at exactly 10 across the dataset (192 at 10.0, 13 at 9.9,
+# only 9 above 10), consistent with 10 being the top of a field kit's color scale.
+PH_KIT_CAP = 10.0
+PH_CAP_NOTE = (
+    "KIT-CAP CAVEAT: pH 10 appears to be the top of the field test kit scale "
+    "(dataset-wide, 192 readings are exactly 10 but only 9 are above 10), so a "
+    "reading of 10 may be capped and the true pH could be higher. Mention this "
+    "whenever pH values or medians of 10 are reported."
+)
+
+
+def _kit_cap_lines(rows, col):
+    if col != "ph_clean":
+        return []
+    at_cap = int((rows[col] == PH_KIT_CAP).sum())
+    if not at_cap:
+        return []
+    return [f"{at_cap} of {len(rows)} pH readings here are exactly {PH_KIT_CAP:g}. " + PH_CAP_NOTE]
+
+
+def _band_lines(rows, col, unit, median):
+    """Per-observation counts in each EarthEcho dictionary band, plus the median's band."""
+    rule = BAND_RULES.get(col)
+    if rule is None:
+        return []
+    band_fn, order = rule
+    counts = rows[col].map(lambda v: band_fn(v)[0]).value_counts()
+    total = int(counts.sum())
+    parts = [
+        f"{band}: {int(counts.get(band, 0))} of {total} ({100 * counts.get(band, 0) / total:.1f}%)"
+        for band in order
+    ]
+    return [
+        f"EarthEcho dictionary band counts (individual observations, {unit}): " + "; ".join(parts) + ".",
+        f"Band of the median value ({median:.3f} {unit}): {band_fn(median)[0]}. "
+        "Bands are the dictionary's simplified raw-value reference bands, not safety standards. "
+        "Use these exact counts; do not estimate band counts from min/max.",
+    ]
+
+
+def _other_unit_lines(site, keys, key):
+    """Mention readings of the same parameter that were excluded because of a different unit."""
+    lines = []
+    for other in keys:
+        if other == key:
+            continue
+        other_col, other_label, other_unit = PARAMETERS[other]
+        n = int(site[other_col].count())
+        if n:
+            lines.append(
+                f"Also at this site: {n} {other_label} reading(s) in {other_unit}, reported separately "
+                f"and NOT included in the counts above (different unit). "
+                f"Total {other_label} readings across units: "
+                f"{n + int(site[PARAMETERS[key][0]].count())}."
+            )
+    return lines
+
+
 def _analyze_parameter(site, keys, start=None, end=None, last_n=None, month=None):
     """Deterministic statistics for one parameter group at a resolved site.
 
@@ -779,8 +1008,11 @@ def _analyze_parameter(site, keys, start=None, end=None, last_n=None, month=None
                f"Parameter: {label}; unit: {unit}; never compare or combine with alternate oxygen/turbidity units.",
                f"Valid observations: {len(rows)} on {len(daily)} distinct sampling days; years: {int(annual.monitoring_year.min())}–{int(annual.monitoring_year.max())}.",
                f"Median across observations: {rows[col].median():.3f} {unit}; min: {rows[col].min():.3f}; max: {rows[col].max():.3f}.",
+               *_band_lines(rows, col, unit, rows[col].median()),
+               *_kit_cap_lines(rows, col),
+               *_other_unit_lines(site, keys, key),
                f"Records with remaining quality flags: {flags}; these need interpretation, not automatic deletion.",
-               "Annual daily-median values (year: median, sampling days):"]
+               "Annual values = median of daily medians per year (year: value, sampling days):"]
     summary.extend(f"{r['year']}: {r['median']} {unit}, n={r['sampling_days']} days" for r in chart)
     if 1 <= len(daily) <= 12:
         summary.append("Individual sampling dates (do not mistake these for a validated trend):")
@@ -791,8 +1023,10 @@ def _analyze_parameter(site, keys, start=None, end=None, last_n=None, month=None
         summary.append(f"First-to-last sampled-day difference: {delta:+.3f} {unit}; "
                        "this is only an observed difference, not evidence of a long-term trend.")
     if len(chart) >= 2:
-        summary.append(f"Earliest-vs-latest observed year median difference: {chart[-1]['median']-chart[0]['median']:+.3f} {unit}. "
-                       "This is not a validated causal or season-adjusted trend.")
+        summary.append(f"Earliest-vs-latest observed year median difference: {chart[-1]['median']-chart[0]['median']:+.3f} {unit} "
+                       f"({chart[0]['year']}: {chart[0]['median']} vs {chart[-1]['year']}: {chart[-1]['median']}). "
+                       "No statistical trend test was run: describe this only as an observed difference between "
+                       "years, never as a 'rising', 'falling', 'increasing', 'improving' or 'worsening' trend.")
     return {"context": "\n".join(summary), "chart": chart, "label": label, "unit": unit,
             "parameter": KEY_TO_GROUP[key]}
 
@@ -808,25 +1042,76 @@ def _closing_notes(site):
     return notes
 
 
+def _site_profile(site):
+    """Facts about the site itself, included with every site-level answer."""
+    def values(col):
+        vals = site[col].dropna().astype(str).str.strip()
+        vals = vals[vals.ne("")]
+        return ", ".join(f"{v} ({n} records)" for v, n in vals.value_counts().items()) or "not recorded"
+
+    dates = site["monitoring_datetime"].dropna()
+    span = f"{dates.min().date()} to {dates.max().date()}" if not dates.empty else "unknown"
+    lines = [
+        "SITE PROFILE (from the MonitorWater CSV):",
+        f"- Site name(s): {', '.join(sorted(site['label'].unique()))}",
+        f"- Waterbody name: {values('Waterbody name')}",
+        f"- Surface water type: {values('Surface water type')}",
+        f"- Records: {len(site):,}; dates {span}; GPS monitoring points: {site['site_key'].nunique()}",
+    ]
+    fecal = site["Fecal Coliform"].dropna().astype(str).str.strip().value_counts()
+    if fecal.sum():
+        lines.append(
+            "- Fecal coliform (presence/absence kit, not a drinking-water test): "
+            + "; ".join(f"{k}: {v}" for k, v in fecal.items())
+            + f" of {int(fecal.sum())} tested records"
+        )
+    else:
+        lines.append("- Fecal coliform: no results recorded at this site")
+    measured = [
+        f"{PARAMETERS[k][1]} ({PARAMETERS[k][2]}): {int(site[PARAMETERS[k][0]].count())}"
+        for k in PARAMETERS if site[PARAMETERS[k][0]].count()
+    ]
+    lines.append("- Readings available per parameter: " + ("; ".join(measured) or "none"))
+    return "\n".join(lines)
+
+
 def _analyze_site_parameters(site, groups, start=None, end=None, last_n=None, month=None):
     """Analyze one or more parameter groups at a site.
 
     One group -> the original single-parameter result with an annual `chart`.
     Several groups (or none specified) -> one combined context plus a per-parameter
-    list of annual `plots`.
+    list of annual `plots`. Every result starts with the site profile.
     """
+    profile = _site_profile(site)
+    requested = list(groups or [])
+    groups = [g for g in requested if g in PARAMETER_GROUPS]
+
+    if requested and not groups:
+        # e.g. only fecal coliform was asked about: the profile holds the answer.
+        return {"context": "\n\n".join([profile, *_closing_notes(site)]), "chart": []}
+
     if not groups:
         groups = [g for g, keys in PARAMETER_GROUPS.items()
                   if any(site[PARAMETERS[k][0]].count() for k in keys)]
         if not groups:
-            return {"context": f"No usable measurements for the supported parameters at "
-                               f"{', '.join(sorted(site['label'].unique()))}.", "chart": []}
+            return {"context": profile + "\nNo usable measurements for the supported parameters.", "chart": []}
+
+    missing = [g for g in groups
+               if not any(site[PARAMETERS[k][0]].count() for k in PARAMETER_GROUPS[g])]
+    groups = [g for g in groups if g not in missing]
+    missing_note = (
+        [f"NO {g.replace('_', ' ').upper()} READINGS are recorded at this site in the CSV "
+         "(a missing reading is not a zero value)."
+         for g in missing]
+    )
+    if not groups:
+        return {"context": "\n\n".join([profile, *missing_note, *_closing_notes(site)]), "chart": []}
 
     results = [_analyze_parameter(site, PARAMETER_GROUPS[g], start, end, last_n, month) for g in groups]
 
     if len(results) == 1:
         result = results[0]
-        result["context"] = "\n".join([result["context"], *_closing_notes(site)])
+        result["context"] = "\n\n".join([profile, *missing_note, result["context"], "\n".join(_closing_notes(site))])
         return result
 
     contexts = [r["context"] for r in results]
@@ -842,7 +1127,7 @@ def _analyze_site_parameters(site, groups, start=None, end=None, last_n=None, mo
     header = (f"MULTI-PARAMETER SUMMARY ({len(results)} parameters). "
               "Each parameter below is analyzed separately; do not combine units across parameters.")
     return {
-        "context": "\n\n".join([header, *contexts, "\n".join(_closing_notes(site))]),
+        "context": "\n\n".join([profile, *missing_note, header, *contexts, "\n".join(_closing_notes(site))]),
         "chart": [],
         "plots": plots,
     }
@@ -871,6 +1156,9 @@ def _analyze_with_plan(question, plan):
 
     if task == "ranking":
         return analyze_dataset_wide(question, force=True)
+
+    if task == "dataset_summary":
+        return analyze_dataset_summary()
 
     df = _load()
     site, error = _find_site(df, site_text)
@@ -903,6 +1191,12 @@ def _analyze_legacy(question):
     dataset_result = analyze_dataset_wide(question)
     if dataset_result is not None:
         return dataset_result
+
+    if re.search(r"\b(dataset|monitorwater|whole|overall|entire|all records|in the data)\b",
+                 question, re.IGNORECASE):
+        _, error = _find_site(_load(), question)
+        if error:  # no specific site named -> whole-dataset question
+            return analyze_dataset_summary()
 
     if _available_parameters_intent(question):
         df = _load()
